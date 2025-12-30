@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOP 처리 내역서</title>
+    <style>
+        body {
+            background-color: lightgray;
+            margin: 0;
+        }
+
+        #content {
+            font-family: 'Malgun Gothic', '맑은 고딕', Dotum, '돋움', sans-serif;
+            margin: auto;
+            padding: 70px;
+            color: #333;
+            font-size: 11pt;
+            width: 210mm;
+            height: 297mm;
+            background-color: white;
+            overflow: hidden;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        #header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 78px;
+        }
+
+        #title {
+            padding-left: 35%;
+            font-size: 16pt;
+        }
+
+        #header-table {
+            width: 230px;
+            height: 80px;
+            border-collapse: collapse;
+            position: absolute;
+            top: 70px;
+            right: 70px;
+
+        }
+
+        #header-table th {
+            border: 1px solid;
+            margin: 0;
+            background-color: aliceblue;
+        }
+
+        #header-table td {
+            border: 1px solid;
+            margin: 0;
+        }
+
+        #data-table {
+            margin-top: 40px;
+            border: 1px solid;
+            width: 100%;
+            border-spacing: 0;
+            border-collapse: collapse;
+        }
+
+        #data-table th {
+            width: 20%;
+            border: 1px solid;
+            background-color: aliceblue;
+            font-weight: bold;
+        }
+
+        #data-table td {
+            width: 90%;
+            border: 1px solid;
+            padding-left: 2%;
+        }
+
+        .content-box-container {
+            display: flex;
+            flex-direction: column;
+            align-items: baseline;
+            gap: 0;
+        }
+
+        .content-box-title {
+            margin-top: 2%;
+            border: 1px solid;
+            width: 19.8%;
+            text-align: center;
+            font-weight: bold;
+            background-color: aliceblue;
+        }
+
+        .content-box {
+            border: 1px solid;
+            height: 400px;
+            margin-top: -1px;
+            width: 100%;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            text-indent: 0.5em;
+            padding: 5px;
+        }
+
+        .content-box-false {
+            border: 1px solid;
+            height: 200px;
+            margin-top: -1px;
+            width: 100%;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            text-indent: 0.5em;
+            padding: 5px;
+        }
+
+        @media print {
+            @page {
+                size: A4;
+                margin: 0;
+            }
+
+            body {
+                background-color: white;
+                margin: 0;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact;
+            }
+
+            #content {
+                margin: 0;
+                padding: 70px;
+                width: 210mm;
+                height: 297mm;
+                box-shadow: none;
+                border: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="content">
+        <div id="header">
+            <h1 id="title">SOP 처리 내역서</h1>
+            <table id="header-table">
+                <tr>
+                    <th></th>
+                    <th></th>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </table>
+        </div>
+
+
+        <table id="data-table">
+            <tr>
+                <th>SOP</th>
+                <td>{{sopName}}</td>
+            </tr>
+            <tr>
+                <th>발생 일시</th>
+                <td>{{occurDateTime}}</td>
+            </tr>
+            <tr>
+                <th>발생 위치</th>
+                <td>{{location}}</td>
+            </tr>
+            <tr>
+                <th>확인 관리자</th>
+                <td>{{ackUser}}</td>
+            </tr>
+            <tr>
+                <th>확인 일시</th>
+                <td>{{ackDateTime}}</td>
+            </tr>
+        </table>
+
+        <div class="content-box-container">
+            <div class="content-box-title">처리 내역</div>
+            <p class="content-box">{{sopStatement}}</p>
+        </div>
+
+        <div class="content-box-container">
+            <div class="content-box-title">오탐 사유</div>
+            <p class="content-box-false">{{falseAlarmType}}</p>
+        </div>
+
+    </div>
+
+</body>
+
+</html>

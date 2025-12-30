@@ -1,0 +1,181 @@
+@import "./assets/styles/app.css";
+
+body {
+  overflow: hidden;
+}
+
+.scroll-container::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}
+
+.scroll-container:hover::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scroll-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.scroll-container::-webkit-scrollbar-track {
+  background: #f4f4f4;
+}
+
+.custom-card .card-header-border {
+  width: 95%;
+  border-bottom: 2px solid lightgray;
+  margin: 0 auto;
+  padding-bottom: 2px;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.custom_select {
+  box-sizing: border-box;
+  padding: 4px;
+  font-size: 12px;
+  border-radius: 6px;
+  background-color: #EBECEF;
+}
+
+.custom_select option {
+  padding: 4px;
+  font-size: 12px;
+  color: #fff;
+  background: #272822;
+}
+
+
+
+.custom-select .select-control {
+  background-color: #fff;
+}
+
+.custom-select .select-control--is-focused {
+  background-color: #e0e0e0;
+}
+
+.custom-dialog .dialog-content {
+  & {
+    @apply bg-[#ebecef] dark:bg-gray-700
+  }
+
+}
+
+.fc .fc-button-primary {
+  background-color: gray;
+  border-color: gray;
+}
+
+.custom-calendar-header {
+  .fc-button {
+    padding: 0rem 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .fc .fc-daygrid-day-frame {
+    height: 50px;
+  }
+
+  .fc .fc-toolbar-title {
+    & {
+      @apply text-[#808080] dark:text-white text-[.9rem]
+    }
+
+    /* font-size: 0.9rem; */
+    /* color:#808080 */
+    /* color:white */
+  }
+
+  .fc-toolbar.fc-header-toolbar {
+    margin-bottom: 0px
+  }
+}
+
+
+.custom-pie-chart .apexcharts-datalabel-label {
+  font-size: 1.2rem;
+}
+
+.custom-pie-chart .apexcharts-datalabel-value {
+  font-size: 1.2rem;
+}
+
+
+.menu-item {
+  &.custom-menu {
+    &.menu-item {
+      @apply dark:text-white
+    }
+
+    &.menu-item-active {
+      @apply text-[#17a36f] hover:text-[#17a36f] dark:text-[#17a36f];
+    }
+  }
+}
+
+.menuBoxZindex .select-menu {
+  z-index: 10;
+}
+
+/*
+출입문 애니메이션
+*/
+@keyframes bounce_frames {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(0, -50px, 0);
+  }
+}
+
+.active {
+  z-index: 11;
+}
+
+#canvasContainer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* 전광판 애니매이션 */
+@keyframes scroll-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.scrolling-text {
+  display: inline-block;
+  animation: scroll-left 8s linear infinite;
+  white-space: nowrap;
+}
+
+/* 달력 타이틀 색상 블랙으로 고정 */
+.react-datepicker__current-month{
+  color: black !important;
+}
+
+/* 지도 시군구 툴팁 */
+.boundary-tooltip {
+  background: white;
+  color: black;
+  font-weight: bold;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 2px 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+}

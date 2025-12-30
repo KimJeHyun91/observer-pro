@@ -1,0 +1,12 @@
+export type View =
+	| 'vms'
+	| 'billboard_message'
+	| 'speaker_message'
+	| 'waterlevel_gauge'
+	| 'waterlevel_gauge_crossinggate'
+	| 'waterlevel_gauge_threshold'
+	| 'waterlevel_group_mapping'
+	| 'parking_sensor'
+	| 'event_setting'
+	| 'crossing_gate'
+	| 'camera'

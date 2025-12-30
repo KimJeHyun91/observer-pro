@@ -1,0 +1,61 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# history
+.history
+
+node_modules
+dist
+dist-ssr
+build
+*.local
+.env
+server/public/assets
+server/public/data
+server/public/img
+server/public/config-template.json
+server/public/favicon.ico
+server/public/school_building
+server/public/security_camera
+
+
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vite-cache/
+
+# public
+public/img/countries
+
+# production
+server/public/images/access_control_person/*.png
+
+# map tiles
+public/img/*
+public/tiles/*
+public/satellite_tiles/*
+server/public/tiles/*
+
+# bis
+node_modules_
+
+# server
+server/public/images
+server/public
+yarn.lock
+
+node_modules - 복사본

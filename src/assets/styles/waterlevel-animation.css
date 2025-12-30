@@ -1,0 +1,74 @@
+.waterlevel-status-주의 .waterlevel-marker {
+	animation: markerPulseCaution 1.5s infinite;
+}
+
+.waterlevel-status-경계 .waterlevel-marker {
+	animation: markerPulseWarning 1.5s infinite;
+}
+
+.waterlevel-status-심각 .waterlevel-marker {
+	animation: markerPulseSevere 1.2s infinite;
+}
+
+.waterlevel-status-대피 .waterlevel-marker {
+	animation: markerPulseDanger 0.8s infinite;
+}
+
+@keyframes markerPulseCaution {
+
+	0%,
+	100% {
+		transform: scale(1);
+		border-color: white;
+	}
+
+	50% {
+		transform: scale(1.1);
+		border-color: #eab308;
+	}
+}
+
+@keyframes markerPulseWarning {
+
+	0%,
+	100% {
+		transform: scale(1);
+		border-color: white;
+	}
+
+	50% {
+		transform: scale(1.2);
+		border-color: #f97316;
+		box-shadow: 0 0 15px #f97316;
+	}
+}
+
+@keyframes markerPulseSevere {
+
+	0%,
+	100% {
+		transform: scale(1);
+		border-color: white;
+	}
+
+	50% {
+		transform: scale(1.3);
+		border-color: #ef4444;
+		box-shadow: 0 0 20px #ef4444;
+	}
+}
+
+@keyframes markerPulseDanger {
+
+	0%,
+	100% {
+		transform: scale(1);
+		border-color: white;
+	}
+
+	50% {
+		transform: scale(1.4);
+		border-color: #9333ea;
+		box-shadow: 0 0 25px #9333ea;
+	}
+}

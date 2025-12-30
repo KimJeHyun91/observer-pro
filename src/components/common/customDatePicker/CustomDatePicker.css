@@ -1,0 +1,30 @@
+:root {
+  --datepicker-font-size: 10px;
+  --datepicker-height: 100%;
+  --datepicker-width: 100%;
+  --datepicker-bg-color: #ffffff;
+  --datepicker-text-color: #000000;
+  --datepicker-border-radius: 0.4rem;
+}
+
+.dark {
+  --datepicker-bg-color: #404040;
+  --datepicker-text-color: #ffffff;
+}
+
+.custom-datePicker-input {
+  font-size: var(--datepicker-font-size);
+}
+
+.custom-datePicker-input input {
+  height: var(--datepicker-height);
+  width: var(--datepicker-width);
+  background-color: var(--datepicker-bg-color) !important;
+  border-radius: var(--datepicker-border-radius);
+  color: var(--datepicker-text-color);
+}
+
+.custom-datePicker-input input[aria-controls] {
+  border-color: inherit !important;
+  box-shadow: none !important;
+}

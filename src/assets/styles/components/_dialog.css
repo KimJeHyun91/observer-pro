@@ -1,0 +1,125 @@
+.dialog {
+  outline: none;
+  @apply mx-auto;
+}
+
+@screen sm {
+  .dialog {
+    @apply max-w-xl;
+  }
+}
+
+@screen md {
+  .dialog {
+    @apply max-w-2xl;
+  }
+}
+
+@screen lg {
+  .dialog {
+    @apply max-w-4xl;
+  }
+}
+
+@screen xl {
+  .dialog {
+    @apply max-w-6xl;
+  }
+}
+
+@screen 2xl {
+  .dialog {
+    @apply max-w-screen-2xl;
+  }
+}
+
+.dialog-content {
+  @apply p-6 rounded-2xl shadow-xl mx-4 my-8 sm:mx-0 sm:my-16 relative h-full bg-white dark:bg-gray-800;
+}
+
+.dialog-content-location {
+  position: relative;
+  top: 30%;
+  padding: 1.075rem;
+  transform: translateY(-30%);
+}
+
+.dialog-content-GroupManager {
+  position: relative;
+  top: 10%;
+  padding: 1.075rem;
+  transform: translateY(-30%);
+}
+
+.dialog-content-GroupControl {
+  position: relative;
+  top: 30%;
+  padding: 1.075rem;
+  transform: translateY(-30%);
+}
+
+.dialog-waterlevelstatus-location {
+  width: 130vw;
+  top: -5%;
+  left: -5%;
+  height: 95vh;
+  max-width: 115%;
+  position: relative;
+  padding: 1.075rem;
+  transform: translateY(-30%);
+}
+
+@media (min-width: 768px) {
+  .dialog-waterlevelstatus-location {
+    width: 130vw;
+  }
+}
+
+@media (min-width: 1200px) {
+  .dialog-waterlevelstatus-location {
+    width: 90vw;
+  }
+}
+
+.dialog-content-waterlevelCam {
+  width: 40vw;
+  max-width: 100%;
+  height: auto;
+  max-height: 100vh;
+  background: transparent !important;
+  padding: 0 !important;
+  border: 0.075rem solid rgb(143, 140, 140);
+  overflow: visible;
+  border-radius: 5px;
+}
+
+.dialog-content-waterlevelCam .close-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: gray;
+}
+
+.dialog-content-waterlevelCam .close-button:hover {
+  color: #000;
+}
+
+.dialog-overlay {
+  @apply inset-0 fixed z-30 transition-all ease-in-out;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.dialog-overlay.bg-transparent {
+  background-color: transparent !important;
+  backdrop-filter: none;
+}
+
+.dialog-overlay-after-open {
+  opacity: 1;
+}
+
+.dialog-overlay-before-close {
+  opacity: 0;
+}
