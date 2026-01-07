@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Dialog from '@/components/ui/Dialog'
 import Button from '@/components/ui/Button'
 import Select from '@/components/ui/Select'
@@ -19,7 +19,7 @@ type AddBroadcastProps = {
 type CameraOption = {
     label: string;
     value: string;
-  };
+};
 
 const AddBroadcast = ({
     show,
@@ -36,7 +36,7 @@ const AddBroadcast = ({
 
     const { cameras, error, isLoading, mutate } = useCameras('broadcast');
 
-    const { handleSubmit, control, reset , setValue} = useForm({
+    const { handleSubmit, control, reset, setValue } = useForm({
         defaultValues: {
             name: '',
             location: '',
@@ -46,9 +46,14 @@ const AddBroadcast = ({
         },
     })
 
-    useEffect(()=>{
+    useEffect(() => {
         mutate()
-    },[])
+    }, [])
+
+    const cameraList = useMemo(() => {
+        const sorted = (list: CameraType[]) => [...list].sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id)));
+        return sorted(cameras?.filter((camera: CameraType) => !camera.left_location && !camera.top_location).sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id))));
+    }, [cameras]);
 
     const onSubmit = (data: any) => {
         onConfirm(data, selectedCameraData)
@@ -68,7 +73,7 @@ const AddBroadcast = ({
             isOpen={show}
             contentClassName="pb-0 px-0"
             onClose={onModalClose}
-            // onRequestClose={onDialogClose}
+        // onRequestClose={onDialogClose}
         >
             <div className="px-4">
                 <h5 className="mb-4">개소 추가</h5>
@@ -80,13 +85,13 @@ const AddBroadcast = ({
                         <p className="min-w-[100px] text-gray-500 font-bold">
                             개소 명 설정
                         </p>
-                         <Controller
+                        <Controller
                             name="name"
                             control={control}
                             rules={{ required: '개소 명을 입력하세요.' }}
-                            render={({ field, fieldState: { error } }) => ( 
-                                  <div className="w-full"> 
-                                     <Input
+                            render={({ field, fieldState: { error } }) => (
+                                <div className="w-full">
+                                    <Input
                                         {...field}
                                         className={`${error && 'border-red-500'}`}
                                         placeholder="개소 명을 입력하세요."
@@ -98,9 +103,9 @@ const AddBroadcast = ({
                                         </p>
                                     )}
                                 </div>
-                              )} 
-                         /> 
-                     </div>
+                            )}
+                        />
+                    </div>
 
                     {/* <div className="flex items-center mb-5">
                         <p className="min-w-[100px] text-gray-500 font-bold">
@@ -134,13 +139,13 @@ const AddBroadcast = ({
                             // rules={{ required: '카메라를 선택하세요.' }}
                             render={({ field, fieldState: { error } }) => (
                                 <div className="w-full">
-                                     <TreeSelect
+                                    <TreeSelect
                                         {...field}
-                                        cameraList={cameras?.filter((camera: CameraType) => !camera.left_location && !camera.top_location).sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id)))}
+                                        cameraList={cameraList}
                                         handleChangeCurrentCamera={handleChangeCurrentCamera}
                                         isServiceType={'broadcast'}
                                         setSelectedCameraData={setSelectedCameraData}
-                                        />
+                                    />
                                 </div>
                             )}
                         />

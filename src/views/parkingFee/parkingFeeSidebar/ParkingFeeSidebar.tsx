@@ -5,6 +5,7 @@ import { MdOutlineScreenshotMonitor } from "react-icons/md";
 import type { IconType } from "react-icons";
 import { FaCar } from "react-icons/fa6";
 import { IoStatsChart } from "react-icons/io5";
+import { HiTicket } from "react-icons/hi2";
 
 type Props = {
   selectedKey: string;
@@ -12,13 +13,13 @@ type Props = {
   selectedParking: parkingFeeOutsideInfo | null;
 }
 
-
 const ParkingFeeSidebar = ({ selectedKey, setSelectedKey, selectedParking } : Props) =>  {
   const navItems = useNavigationConfig()
   const parkingFeeMenu = navItems.find((item) => item.key === 'parkingFee')
   const parkingFeeIcons: Record<string, IconType> = {
     carManagement: FaCar,
     dashboard: IoStatsChart,
+    seasonTicket: HiTicket,
   }
 
   const baseMenu = {

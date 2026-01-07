@@ -254,3 +254,49 @@ export type TotalRevenueItem = {
     month_end: string;
     month_parking_fee: number;
 };
+
+export type ratioItem = {
+    lp_type: string;
+    lp_type_count: number;
+    ratio: string;
+};
+
+export type SeasonTicketMember = {
+    id: string;
+    siteId: string;
+    carNumber: string;
+    name: string;
+    description?: string;
+    code?: string;
+    phone?: string;
+    groupName?: string;
+    note?: string;
+    currentMembership?: CurrentMembership;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+};
+
+export type CurrentMembership = {
+    status: 'UPCOMING' | 'ACTIVE' | 'EXPIRING' | 'EXPIRED' ;
+    startDate: string;
+    endDate: string;
+    remainingDays: number;
+    paidFee: number;
+    paidMethod: string;
+};
+
+export type MemberPaymentHistory = {
+    id: string;
+    memberId: string;
+    policyId: string | null;
+    amount: number;
+    paymentMethod: 'CASH' | 'CARD' | 'TRANSFER';
+    paymentStatus: 'ok' | 'fail' | 'cancel';
+    note: string;
+    startDate: string;
+    endDate: string;
+    paidAt: string;
+    createdAt: string;
+    updatedAt: string;
+};

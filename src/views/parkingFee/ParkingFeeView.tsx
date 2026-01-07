@@ -5,6 +5,7 @@ import ParkingFeeSidebar from './parkingFeeSidebar/ParkingFeeSidebar';
 import { useState, useEffect } from 'react';
 import CarManagement from './components/CarManagement'
 import Dashboard from './components/Dashboard'
+import SeasonTicket from './components/SeasonTicket'
 import ParkingFeeMain from './components/ParkingFeeMain'
 import { IoMdHome } from 'react-icons/io';
 import ParkingFeeDetail from './components/ParkingFeeDetail'
@@ -36,6 +37,10 @@ const ParkingFeeView = () => {
                  />
         case 'parkingFee.dashboard':
           return <Dashboard 
+                    selectedParking={selectedParking}
+                 />
+        case 'parkingFee.seasonTicket':
+          return <SeasonTicket 
                     selectedParking={selectedParking}
                  />
         default:

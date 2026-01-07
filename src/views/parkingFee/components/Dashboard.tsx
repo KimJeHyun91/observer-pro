@@ -1,6 +1,4 @@
-import {
-    parkingFeeOutsideInfo,
-} from '@/@types/parkingFee'
+import { parkingFeeOutsideInfo } from '@/@types/parkingFee'
 import DailyChart from './chart/DailyChart'
 import TotalChart from './chart/TotalChart'
 import MovingCarChart from './chart/MovingCarChart'
@@ -13,30 +11,29 @@ type Props = {
 }
 
 const Dashboard = ({ selectedParking }: Props) => {
-    console.log(selectedParking);
     return (
         <div className="h-full flex flex-col gap-4 mb-2">
             <div className="grid grid-cols-6 gap-4 h-1/2">
                 <DashboardBox title="일일 종합 수익" className="col-span-1">
-                    <DailyChart />
+                    <DailyChart selectedParking={selectedParking}/>
                 </DashboardBox>
                 <DashboardBox title="종합 수익 보고" className="col-span-3">
-                    <TotalChart />
+                    <TotalChart selectedParking={selectedParking}/>
                 </DashboardBox>
                 <DashboardBox title="유동 차량" className="col-span-2">
-                    <MovingCarChart />
+                    <MovingCarChart selectedParking={selectedParking}/>
                 </DashboardBox>
             </div>
 
             <div className="grid grid-cols-6 gap-4 h-1/2">
                 <DashboardBox title="차량 종류 비율" className="col-span-1">
-                    <CarTypePieChart />
+                    <CarTypePieChart selectedParking={selectedParking}/>
                 </DashboardBox>
                 <DashboardBox title="시간대별 입출차 흐름" className="col-span-2">
-                    <TimeFlowChart />
+                    <TimeFlowChart selectedParking={selectedParking}/>
                 </DashboardBox>
                 <DashboardBox title="당월 이용률" className="col-span-3">
-                    <MonthlyUsageChart />
+                    <MonthlyUsageChart selectedParking={selectedParking}/>
                 </DashboardBox>
             </div>
         </div>

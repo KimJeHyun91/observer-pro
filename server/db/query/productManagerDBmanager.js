@@ -344,44 +344,44 @@ exports.createTables = async () => {
         FROM
             tm_billboard
             
-        UNION ALL
+        -- UNION ALL
 
-        SELECT
-            json_build_object(
-                'table', 'pm_device', 
-                'key', json_build_object(
-                    'idx', idx
-                )
-            ) AS device_identifier
-            , NULLIF(device_no16, '') AS device_name
-            , NULLIF(device_ip, '') AS device_ip
-            , '주차' AS service_type
-            , CASE
-                WHEN device_type = 'sensor' THEN '센서'
-                ELSE '기타'
-            END AS device_type
-            , NULLIF(device_location, '') AS location
-            , created_at
-        FROM
-            pm_device
+        -- SELECT
+        --     json_build_object(
+        --         'table', 'pm_device', 
+        --         'key', json_build_object(
+        --             'idx', idx
+        --         )
+        --     ) AS device_identifier
+        --     , NULLIF(device_no16, '') AS device_name
+        --     , NULLIF(device_ip, '') AS device_ip
+        --     , '주차' AS service_type
+        --     , CASE
+        --         WHEN device_type = 'sensor' THEN '센서'
+        --         ELSE '기타'
+        --     END AS device_type
+        --     , NULLIF(device_location, '') AS location
+        --     , created_at
+        -- FROM
+        --     pm_device
+ 
+        -- UNION ALL
 
-        UNION ALL
-
-        SELECT
-            json_build_object(
-                'table', 'pf_crossing_gate', 
-                'key', json_build_object(
-                    'idx', idx
-                )
-            ) AS device_identifier
-            , NULLIF(crossing_gate_ip || ':' || crossing_gate_port, ':') AS device_name
-            , NULLIF(crossing_gate_ip, '') AS device_ip
-            , '주차' AS service_type
-            , '차단기' AS device_type
-            , NULLIF(location, '') AS location
-            , created_at
-        FROM
-            pf_crossing_gate
+        -- SELECT
+        --     json_build_object(
+        --         'table', 'pf_crossing_gate', 
+        --         'key', json_build_object(
+        --             'idx', idx
+        --         )
+        --     ) AS device_identifier
+        --     , NULLIF(crossing_gate_ip || ':' || crossing_gate_port, ':') AS device_name
+        --     , NULLIF(crossing_gate_ip, '') AS device_ip
+        --     , '주차' AS service_type
+        --     , '차단기' AS device_type
+        --     , NULLIF(location, '') AS location
+        --     , created_at
+        -- FROM
+        --     pf_crossing_gate
     `;
 
     const client = await pool.connect();

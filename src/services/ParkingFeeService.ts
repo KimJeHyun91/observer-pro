@@ -195,17 +195,27 @@ export async function getPaymentDetailInfo<T extends Record<string, unknown>>(da
     });
 }
 
-export async function getDailyRevenue<T>(): Promise<ApiResultObjectArray<T>> {
+export async function getDailyRevenue<T extends Record<string, unknown>>(data: Record<string, unknown> ): Promise<ApiResultObjectArray<T>> {
     return ApiService.fetchDataWithAxios<ApiResultObjectArray<T>>({
         url: endpointConfig.dailyRevenue,
-        method: 'post'
+        method: 'post',
+        data: data,
     });
 }
 
-export async function getTotalRevenue<T>(): Promise<ApiResultObjectArray<T>> {
+export async function getTotalRevenue<T extends Record<string, unknown>>(data: Record<string, unknown> ): Promise<ApiResultObjectArray<T>> {
     return ApiService.fetchDataWithAxios<ApiResultObjectArray<T>>({
         url: endpointConfig.totalRevenue,
-        method: 'post'
+        method: 'post',
+        data: data,
+    });
+}
+
+export async function getPieChartItem<T extends Record<string, unknown>>(data: Record<string, unknown> ): Promise<ApiResultObjectArray<T>> {
+    return ApiService.fetchDataWithAxios<ApiResultObjectArray<T>>({
+        url: endpointConfig.pieChart,
+        method: 'post',
+        data: data,
     });
 }
 

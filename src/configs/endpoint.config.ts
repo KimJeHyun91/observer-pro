@@ -143,10 +143,6 @@ const endpointConfig = {
     // independent camera
     apiCamera: '/observer/camera',
 
-
-
-    // --------------------------------------------------------
-
     // #region parkingFee api
     // outside
     parkingFeeList: '/parkingFee/get/parkingList',           // 주차장(외부) 목록 조회
@@ -211,6 +207,7 @@ const endpointConfig = {
     // 운영현황
     dailyRevenue: '/parkingFee/get/daily/revenue',      // 일별 수익 조회
     totalRevenue: '/parkingFee/get/total/revenue',      // 주/월 단위 종합 수익 조회
+    pieChart: '/parkingFee/get/daily/lptype/ratio',     // 차량 종류 비율
 
     // #endregion
 

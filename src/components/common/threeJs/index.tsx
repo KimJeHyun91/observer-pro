@@ -1258,28 +1258,26 @@ const ThreeJSCanvas = ({ serviceType }: Props) => {
                             </div>
                         )}
 
-                        {isUIReady && (
-                            <TopHeader
-                                isRotation={isRoation}
-                                activePanel={activePanel}
-                                canRotate={canRotate}
-                                onToggleDeviceList={toggleDeviceList}
-                                onToggleModelControl={toggleModelControl}
-                                onToggleRotation={() => setIsRoation((p) => !p)}
-                                onToggleView={() => {
-                                    const current = useCanvasMapStore.getState()
-                                        setCanvasMapState({
-                                        ...current,
-                                        is3DView: !current.is3DView,
-                                    })
-                                }}
-                                onOpenModal={(type, id) => {
-                                    openModal(type, id);
-                                }}
-                                onResetCamera={resetCameraToDefault}
-                            />
-                        )}
-
+                        <TopHeader
+                            isRotation={isRoation}
+                            activePanel={activePanel}
+                            canRotate={canRotate}
+                            onToggleDeviceList={toggleDeviceList}
+                            onToggleModelControl={toggleModelControl}
+                            onToggleRotation={() => setIsRoation((p) => !p)}
+                            onToggleView={() => {
+                                const current = useCanvasMapStore.getState()
+                                    setCanvasMapState({
+                                    ...current,
+                                    is3DView: !current.is3DView,
+                                })
+                            }}
+                            onOpenModal={(type, id) => {
+                                openModal(type, id);
+                            }}
+                            onResetCamera={resetCameraToDefault}
+                        />
+                        
                         {isUIReady && activePanel === 'deviceList' && (
                             <DeviceListSidebar
                                 mixDeviceMappings={mixDeviceMappings}

@@ -1,7 +1,13 @@
 import { useState } from "react";
 import Chart from "react-apexcharts";
+import { parkingFeeOutsideInfo } from '@/@types/parkingFee';
 
-const MovingCarChart = () => {
+type Props = {
+    selectedParking: parkingFeeOutsideInfo
+}
+
+const MovingCarChart = ({ selectedParking }: Props) => {
+    console.log(selectedParking);
     const [mode, setMode] = useState<"day" | "week" | "month">("day");
 
     const dayLabels = ["24-07-10", "24-07-12", "24-07-14", "24-07-16"];

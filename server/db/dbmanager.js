@@ -43,12 +43,15 @@ const createDatabase = async () => {
 const commonDBmanager = require('./query/commonDBmanager');
 const observerDBmanager = require('./query/observerDBmanager');
 const inundationControlDBmanager = require('./query/inundationControlDBmanager');
-const parkingDBmanager = require('./query/parkingDBmanager');
+
 const broadcastDBmanager = require('./query/broadcastDBmanager');
 const tunnelDBmanager = require('./query/tunnelDBmanager');
-const parkingFeeDBmanager = require('./query/parkingFeeDBmanager');
 const productManagerDBmanager = require('./query/productManagerDBmanager');
 const threedDBmanager = require('./query/threedDBmanager');
+
+// 주차 요금 DB 스키마
+// const parkingDBmanager = require('./query/parkingDBmanager');
+const { initParkingFeeDbSchema } = require('../parking-fee-server-refactoring/parking-fee.dbmanger');
 
 exports.initMainDb = async () => {
 
@@ -58,15 +61,18 @@ exports.initMainDb = async () => {
     await commonDBmanager.createTables();
     await observerDBmanager.createTables();
     await inundationControlDBmanager.createTables();
-    await parkingDBmanager.createTables();
     await broadcastDBmanager.createTables();
     await tunnelDBmanager.createTables();
-    await parkingFeeDBmanager.createTables();
+    
     await productManagerDBmanager.createTables();
     await threedDBmanager.createTables();
 
+    // 주차 요금 DB 스키마
+    // await parkingDBmanager.createTables();
+    await initParkingFeeDbSchema();
+
     // DB 생성 완료 후 폴링 시작
-    // require('../worker/dbPolling').startDbPolling(); // 옵저버 폴링
+    require('../worker/dbPolling').startDbPolling(); // 옵저버 폴링
     // require('../worker/inundation/inundationPolling').startDevicePolling(); // 침수 폴링
     // require('../worker/parking/parkingPolling').startDbPolling(); // 주차유도 폴링
     // require('../worker/broadcast/broadcastPolling').startDevicePolling(); // 마을방송 폴링

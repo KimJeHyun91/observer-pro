@@ -221,7 +221,6 @@ export default function TreeSelect({
             }
           }
         }
-        console.log(option);
         setSelectedOption(option);
         handleChangeCurrentCamera(option);
 

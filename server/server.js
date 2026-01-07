@@ -136,8 +136,10 @@ app.use('/api/inundation', inundationRouter);
 const parkingRouter = require('./routes/parkingRouter');
 app.use('/api/parking', parkingRouter);
 
-const parkingFeeRouter = require('./routes/parkingFeeRouter');
-app.use('/api/parkingFee', parkingFeeRouter);
+// const parkingFeeRouter = require('./routes/parkingFeeRouter');
+// app.use('/api/parkingFee', parkingFeeRouter);
+const parkingFeeRouter = require('./parking-fee-server-refactoring/src/api/routes');
+app.use('/api/parking-fee', parkingFeeRouter);
 
 const broadcastRouter = require('./routes/broadcastRouter');
 app.use('/api/broadcast', broadcastRouter);
@@ -573,7 +575,7 @@ const { getRtspFromOnvif } = require('./worker/common/onvifStream');
 const crossingGateSocketControl = require('./worker/inundation/crossingGateSocketControl');
 // const maintenanceNotification = require('./worker/productManager/maintenanceNotification');
 const maintenanceNotification = require('./worker/productManager/maintenanceNotification');
-const cp100Control = require('./worker/inundation/cp100WaterLevelSocketControl');
+// const cp100Control = require('./worker/inundation/cp100WaterLevelSocketControl');
 const { connectEbellServer } = require('./worker/pollings/ebellSocketClient');
 const { startCheckOriginDevices } = require('./worker/main/checkDevices');
 const { autoSyncGuardianlites } = require('./worker/main/guardianlitePolling');
@@ -585,7 +587,7 @@ const initializeServer = async () => {
     const io = socketIO(server, { cors: { origin: '*' } });
     require('./worker/serverSocket')(io);
     require('./worker/inundation/crossingGateSocketControl')(io);
-    cp100Control.cp100SocketHandler(io);
+    // cp100Control.cp100SocketHandler(io);
     // require('./worker/inundation/greenParkingGateSocketControl')(io);
     const billboardSocketControl = require('./worker/inundation/billboardSocketControl');
     billboardSocketControl.init(io);
@@ -611,6 +613,22 @@ const initializeServer = async () => {
       serverConfig.IPv4 = actualIP;
 
     });
+
+    // io.on("connection", socket => {
+    //     console.log("socket connected:", socket.id);
+
+    //     socket.on("pf_lpr-update", data => {
+    //         io.emit("pf_lpr-update", data);
+    //     });
+
+    //     socket.on("pf_gate_state-update", data => {
+    //         io.emit("pf_gate_state-update", data);
+    //     });
+
+    //     socket.on("pf_fee_calculation_result-update", data => {
+    //         io.emit("pf_fee_calculation_result-update", data);
+    //     });
+    // });
 
     // 유지보수 만료 알림 전송(매일 오후 12시)
     // maintenanceNotification.startScheduler();
@@ -691,7 +709,7 @@ function onListening() {
 
 const { syncGuardianlites } = require('./worker/inundation/guardianlitePolling');
 const billboardSocketControl = require('./worker/inundation/billboardSocketControl');
-const cp100WaterLevelControl = require('./worker/inundation/cp100WaterLevelSocketControl');
+// const cp100WaterLevelControl = require('./worker/inundation/cp100WaterLevelSocketControl');
 
 
 app.post('/api/inundation/resetSocket', async (req, res) => {
@@ -705,7 +723,7 @@ app.post('/api/inundation/resetSocket', async (req, res) => {
     await crossingGateSocketControl.initializeCrossingGates();
     await syncGuardianlites();
     await billboardSocketControl.initializeBillboards();
-    await cp100Control.initializeCP100Connections();
+    // await cp100Control.initializeCP100Connections();
     res.json({ message: '서버 재시작이 시작되었습니다.' });
   } catch (error) {
     console.error('Forever 재시작 에러:', error);

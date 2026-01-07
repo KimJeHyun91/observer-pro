@@ -588,7 +588,7 @@ const ParkingFeeDetail = ({ parkings, selectedParking, setSelectedParking }: Pro
     //             lpr: {
     //                 update: {
     //                     discountfee: 30,
-    //                     feetype: 0,
+    //                     feetype: 1,
     //                     image_url: "http://192.168.3.201:3120/images/2025_12_29/1766966096761_1766966096761_1766966096763_loop3_00_0_33001_232구4894.jpg",
     //                     in_time: 1766966094262,
     //                     in_time_person: "2025-12-29 08:54:54",
@@ -1011,12 +1011,7 @@ const ParkingFeeDetail = ({ parkings, selectedParking, setSelectedParking }: Pro
                         <div className="border-t dark:border-gray-400 pt-3 mt-2 flex justify-between items-center font-bold text-lg text-orange-400">
                             <span>결제 금액</span>
                             <span>
-                                {Math.max(
-                                    (feeResult?.parkingfee ?? 0)
-                                    - (feeResult?.prepayment ?? 0)
-                                    - (feeResult?.discountfee ?? 0),
-                                    0
-                                ).toLocaleString()}
+                                {Math.max(feeResult?.parkingfee ?? 0).toLocaleString()}
                             </span>
                         </div>
                     </div>
@@ -1028,7 +1023,7 @@ const ParkingFeeDetail = ({ parkings, selectedParking, setSelectedParking }: Pro
                             className={`
                                 px-6 py-2 rounded-md text-sm font-semibold transition
                                 ${
-                                    exitCarInfo && feeResult?.feetype === 1
+                                    exitCarInfo && feeResult?.feetype === 1 && selectedCar?.direction === 'out'
                                         ? 'bg-blue-600 hover:bg-blue-700 text-white shadow'
                                         : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                                 }

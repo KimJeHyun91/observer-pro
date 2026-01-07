@@ -29,8 +29,8 @@ type Props = {
 }
 
 type CameraOption = {
-  label: string;
-  value: string;
+    label: string;
+    value: string;
 };
 
 type CameraServicePrefix = 'ob' | 'pm'
@@ -48,7 +48,7 @@ const AddModel = ({
     serviceType
 }: Props) => {
     const { socketService } = useSocketConnection();
-    const { cameras , mutate: mutateCamera } = useCameras(serviceType as ServiceType);
+    const { cameras, mutate: mutateCamera } = useCameras(serviceType as ServiceType);
 
     const isParkingType = useRef(false)
     const [selectedTypeId, setSelectedTypeId] = useState(() => {
@@ -76,7 +76,7 @@ const AddModel = ({
         // }
         return []
     }, [title])
-    const [ camera , setCamera] = useState('');
+    const [camera, setCamera] = useState('');
 
     const getMainServicePrefix = (serviceType: string): CameraServicePrefix | null => {
         switch (serviceType.toLowerCase()) {
@@ -96,8 +96,8 @@ const AddModel = ({
         if (!socketService || !cameraSocketEvent) return
 
         const cameraSocket = socketService.subscribe(cameraSocketEvent, (received) => {
-                if (received) mutateCamera()
-            }
+            if (received) mutateCamera()
+        }
         )
 
         return () => {
@@ -141,7 +141,7 @@ const AddModel = ({
 
     const save = async () => {
         if (selectedTypeId !== 2 && selectedDevice === null) return
-        let targetData: ThreedDevice | ThreedModel | { id: number; mapping_name: string } |null = null
+        let targetData: ThreedDevice | ThreedModel | { id: number; mapping_name: string } | null = null
 
         if (selectedTypeId === 0) {
             if (!addName.trim()) {
@@ -150,7 +150,11 @@ const AddModel = ({
             }
             const targetDevice = deviceList.find((d) => d.id === selectedDevice)
             if (!targetDevice) return
-            targetData = { ...targetDevice, mapping_name: addName }
+            if (camera) {
+                targetData = { ...targetDevice, mapping_name: addName, cameraId: camera.split(':')[2] }
+            } else {
+                targetData = { ...targetDevice, mapping_name: addName }
+            }
         } else if (selectedTypeId === 1) {
             const targetModel = models.find((m) => m.id === selectedDevice)
             if (!targetModel) return
@@ -173,7 +177,14 @@ const AddModel = ({
         } finally {
             setIsSaving(false)
         }
+
+        console.log(targetData);
     }
+
+    const cameraList = useMemo(() => {
+        const sorted = (list: CameraType[]) => [...list].sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id)));
+        return sorted(cameras?.filter((camera: CameraType) => !camera.left_location && !camera.top_location).sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id))));
+    }, [cameras]);
 
     useEffect(() => {
         if (deviceList.length > 0) {
@@ -311,9 +322,8 @@ const AddModel = ({
 
                     {/* 검색 결과 */}
                     <div
-                        className={`grid grid-cols-5 items-start gap-4 ${
-                            isCameraBindableDevice ? '' : 'mb-8'
-                        }`}
+                        className={`grid grid-cols-5 items-start gap-4 ${isCameraBindableDevice ? '' : 'mb-8'
+                            }`}
                     >
                         <span className="col-span-1"></span>
                         <div className="col-span-4">
@@ -324,11 +334,10 @@ const AddModel = ({
                                 {filteredDevices.map((item) => (
                                     <div
                                         key={item.id}
-                                        className={`p-2 hover:bg-gray-100 dark:hover:bg-gray-500 cursor-pointer flex items-center ${
-                                            selectedDevice === item.id
-                                                ? 'bg-green-100 border-l-4 border-green-500 dark:bg-green-600 dark:border-green-800'
-                                                : ''
-                                        }`}
+                                        className={`p-2 hover:bg-gray-100 dark:hover:bg-gray-500 cursor-pointer flex items-center ${selectedDevice === item.id
+                                            ? 'bg-green-100 border-l-4 border-green-500 dark:bg-green-600 dark:border-green-800'
+                                            : ''
+                                            }`}
                                         onClick={() => selectArea(item)}
                                     >
                                         <input
@@ -357,7 +366,7 @@ const AddModel = ({
 
                             <div className="col-span-4">
                                 <TreeSelect
-                                    cameraList={cameras.filter((camera: CameraType) => !camera.left_location && !camera.top_location).sort((a: CameraType, b: CameraType) => (parseFloat(a.camera_id) - parseFloat(b.camera_id)))}
+                                    cameraList={cameraList}
                                     handleChangeCurrentCamera={handleChangeCurrentCamera}
                                     camera={camera}
                                 />
@@ -389,15 +398,15 @@ const AddModel = ({
                                 value={
                                     selectedDevice
                                         ? {
-                                              value: selectedDevice,
-                                              label:
-                                                  models.find(
-                                                      (m) =>
-                                                          m.id ===
-                                                          selectedDevice,
-                                                  )?.name ??
-                                                  `ID: ${selectedDevice}`,
-                                          }
+                                            value: selectedDevice,
+                                            label:
+                                                models.find(
+                                                    (m) =>
+                                                        m.id ===
+                                                        selectedDevice,
+                                                )?.name ??
+                                                `ID: ${selectedDevice}`,
+                                        }
                                         : null
                                 }
                                 options={models
@@ -420,7 +429,7 @@ const AddModel = ({
                                                 (dm) =>
                                                     dm.model_id === model.id &&
                                                     dm.linked_model_id ===
-                                                        currentModelId,
+                                                    currentModelId,
                                             ),
                                     )
                                     .map((model) => ({

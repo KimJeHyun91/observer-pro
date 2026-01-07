@@ -2,17 +2,23 @@ import { useEffect, useState } from 'react';
 import Chart from 'react-apexcharts';
 import { ApexOptions } from 'apexcharts';
 import { getTotalRevenue } from '@/services/ParkingFeeService';
-import { TotalRevenueItem } from '@/@types/parkingFee';
+import { TotalRevenueItem, parkingFeeOutsideInfo } from '@/@types/parkingFee';
 
 type Mode = 'week' | 'month';
 
-const TotalChart = () => {
+type Props = {
+    selectedParking: parkingFeeOutsideInfo
+}
+
+const TotalChart = ({ selectedParking }: Props) => {
     const [mode, setMode] = useState<Mode>('week');
     const [data, setData] = useState<TotalRevenueItem[]>([]);
 
     useEffect(() => {
         const totalRevenue = async () => {
-            const res = await getTotalRevenue<TotalRevenueItem>();
+            const res = await getTotalRevenue<TotalRevenueItem>({
+                outside_ip : selectedParking.outside_ip
+            });
             
             if (res.message === 'ok') {
                 setData(res.result);
@@ -20,6 +26,7 @@ const TotalChart = () => {
         };
 
         totalRevenue();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const isWeek = mode === 'week';

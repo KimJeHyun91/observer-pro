@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import Chart from 'react-apexcharts';
 import { getDailyRevenue } from '@/services/ParkingFeeService';
-import { DailyRevenueItem } from '@/@types/parkingFee'
+import { DailyRevenueItem, parkingFeeOutsideInfo } from '@/@types/parkingFee'
 import { ApexOptions } from 'apexcharts';
 
-const DailyChart = () => {
+type Props = {
+    selectedParking: parkingFeeOutsideInfo
+}
+
+const DailyChart = ({ selectedParking }: Props) => {
     const [data, setData] = useState<DailyRevenueItem[]>([]);
 
     useEffect(() => {
         const dailyRevenueList = async () => {
             try {
-                const res = await getDailyRevenue<DailyRevenueItem>();
+                const res = await getDailyRevenue<DailyRevenueItem>({
+                    outside_ip : selectedParking.outside_ip
+                });
 
                 if (res.message === 'ok') {
                     setData(res.result);
@@ -21,6 +27,7 @@ const DailyChart = () => {
         };
 
         dailyRevenueList();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const fees = data.map((d) => d.fee);

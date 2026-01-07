@@ -258,6 +258,13 @@ class SocketService {
 		return this.socket.connected;
 	}
 
+	// public emit(event: string, data: any): void {
+	// 	if (!this.socket || !this.isConnected()) {
+	// 		return;
+	// 	}
+	// 	this.socket.emit(event, data);
+	// }
+	
 	public disconnect(): void {
 		if (this.initialized && this.socket.connected) {
 			this.initialized = false;

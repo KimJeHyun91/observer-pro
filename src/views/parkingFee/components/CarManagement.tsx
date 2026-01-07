@@ -29,7 +29,6 @@ const CarManagement = ({ selectedParking }: Props) => {
     const [startDate, setStartDate] = useState(today);
     const [endDate, setEndDate] = useState(today);
 
-   
     const dateRef = useRef({ startDate, endDate }); // 최신 조회 기간을 위한 ref
     const [filter, setFilter] = useState<ParkingFilter>('all'); // 입출차 필터(전체/출차/주차중)
     const [searchText, setSearchText] = useState(''); // 차량번호 검색어
@@ -190,6 +189,7 @@ const CarManagement = ({ selectedParking }: Props) => {
     return (
         <div className="w-full h-full mb-2 bg-white dark:bg-gray-800 shadow-md rounded-lg">
             <div className="px-4 py-3 border-b border-gray-300 dark:border-gray-700 flex items-center">
+                <span className="mr-2 text-black font-bold text-[18px] dark:text-white">주차장명</span>
                 <div className="border border-gray-300 outline-none rounded px-3 w-[200px] h-[30px] mr-3 flex items-center dark:text-white">
                     {selectedParking.outside_name}
                 </div>
@@ -707,12 +707,7 @@ const CarManagement = ({ selectedParking }: Props) => {
                                 <div className="flex justify-between items-center text-orange-400">
                                     <span className="font-semibold text-lg">결제 금액</span>
                                     <span className="text-3xl font-extrabold">
-                                        {Math.max(
-                                            (paymentDetailInfo?.parking_fee ?? 0)
-                                            - (paymentDetailInfo?.pre_parking_fee ?? 0)
-                                            - (paymentDetailInfo?.discount_fee ?? 0),
-                                            0
-                                        ).toLocaleString()}
+                                        {Math.max((paymentDetailInfo?.parking_fee ?? 0)).toLocaleString()}
                                     </span>
                                 </div>
                             </div>

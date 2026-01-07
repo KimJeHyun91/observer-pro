@@ -280,8 +280,19 @@ exports.createTables = async () => {
     await client.query(ebellDeviceEventTable);
     await client.query(anprVehicleNumberTable);
 
+    const insideSequence = `
+    SELECT setval(
+      pg_get_serial_sequence('ob_inside','idx'),
+      (SELECT COALESCE(MAX(idx),0) + 1 FROM ob_inside),
+      false
+    );`
+
+    await client.query(insideSequence);
+
     // await client.query(vmsTable);
     // await client.query(cameraTable);
+
+    
     
   } catch(error) {
     logger.info('db/query/observerDBmanager.js, createTables, error: ', error);

@@ -1,6 +1,12 @@
 import Chart from "react-apexcharts";
+import { parkingFeeOutsideInfo } from '@/@types/parkingFee';
 
-const MonthUseChart = () => {
+type Props = {
+    selectedParking: parkingFeeOutsideInfo
+}
+
+const MonthUseChart = ({ selectedParking }: Props) => {
+    console.log(selectedParking);
     const labels = ["23-08", "23-10", "23-12", "24-02", "24-04", "24-06"];
 
     const totalCars = [5, 3, 8, 10, 29, 5];

@@ -1,6 +1,12 @@
 import Chart from "react-apexcharts";
+import { parkingFeeOutsideInfo } from '@/@types/parkingFee';
 
-const TimeFlowChart = () => {
+type Props = {
+    selectedParking: parkingFeeOutsideInfo
+}
+
+const TimeFlowChart = ({ selectedParking }: Props) => {
+    console.log(selectedParking);
     const inData =  [2, 1, 3, 10, 18, 15, 20, 25, 30, 22, 10, 5];
     const outData = [1, 0, 1, 5, 12, 10, 15, 20, 28, 25, 14, 7];
 

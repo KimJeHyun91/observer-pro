@@ -139,9 +139,9 @@ export default function AddCamera({ type, onCancel, add, setDeviceCamera, clickD
         </div>
       )}
       <TreeSelect
+        camera={camera}
         cameraList={cameraList}
         handleChangeCurrentCamera={handleChangeCurrentCamera}
-        camera={camera}
       />
       {type === 'add' && (
         <Select
