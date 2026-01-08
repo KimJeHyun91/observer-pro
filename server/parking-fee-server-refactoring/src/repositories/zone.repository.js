@@ -17,10 +17,9 @@ class ZoneRepository {
                 site_id, 
                 name, 
                 description, 
-                code, 
-                is_active
+                code
             )
-            VALUES ($1, $2, $3, $4, $5)
+            VALUES ($1, $2, $3, $4)
             RETURNING *
         `;
 
@@ -28,8 +27,7 @@ class ZoneRepository {
             data.siteId,
             data.name,
             data.description || null,
-            data.linkCode || null,
-            true // is_active 기본값
+            data.code || null
         ];
 
         try {
@@ -53,26 +51,10 @@ class ZoneRepository {
     /**
      * 다목적 목록 조회 (Find All)
      * - Zone 기본 컬럼 검색
-     * - 조회 결과에 해당 Zone에 속한 Lanes 요약 정보 포함
      */
     async findAll(filters, sortOptions, limit, offset) {
-        // Lanes 정보를 JSON 배열로 집계하여 반환 (LEFT JOIN & GROUP BY)
-        let query = `
-            SELECT z.*,
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', l.id, 
-                               'name', l.name, 
-                               'type', l.type, 
-                               'isActive', l.is_active
-                           ) ORDER BY l.name ASC
-                       ) FILTER (WHERE l.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_lanes
-            FROM pf_zones z
-            LEFT JOIN pf_lanes l ON z.id = l.zone_id AND l.is_active = true
-        `;
+
+        let query = `SELECT z.* FROM pf_zones z`;
 
         const whereClauses = [];
         const values = [];
@@ -80,7 +62,7 @@ class ZoneRepository {
 
         // 1. 일반 Zone 컬럼 필터 (스네이크케이스 기준)
         const zoneTextColumns = ['name', 'description', 'code'];
-        const zoneExactColumns = ['id', 'site_id', 'is_active'];
+        const zoneExactColumns = ['id', 'site_id'];
         
         Object.keys(filters).forEach(key => {
             const value = filters[key];
@@ -161,10 +143,10 @@ class ZoneRepository {
                 client.query(query, values)
             ]);
 
-            const pf_zones = rowsResult.rows.map(row => humps.camelizeKeys(row));
+            const pfZones = rowsResult.rows.map(row => humps.camelizeKeys(row));
 
             return {
-                rows: pf_zones,
+                rows: pfZones,
                 count: parseInt(countResult.rows[0].count)
             };
         } finally {
@@ -184,14 +166,13 @@ class ZoneRepository {
                            json_build_object(
                                'id', l.id, 
                                'name', l.name, 
-                               'type', l.type, 
-                               'isActive', l.is_active
+                               'type', l.type
                            ) ORDER BY l.name
                        ) FILTER (WHERE l.id IS NOT NULL), 
                        '[]'
                    ) as pf_lanes
             FROM pf_zones z
-            LEFT JOIN pf_lanes l ON z.id = l.zone_id AND l.is_active = true
+            LEFT JOIN pf_lanes l ON z.id = l.zone_id
             WHERE z.id = $1 
             GROUP BY z.id
         `;
@@ -279,20 +260,10 @@ class ZoneRepository {
     }
 
     /**
-     * 삭제 (Hard/Soft)
+     * 삭제 (Delete)
      */
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM pf_zones WHERE id = $1 RETURNING id`;
-        } else {
-            query = `
-                UPDATE pf_zones 
-                SET is_active = false, updated_at = NOW() 
-                WHERE id = $1 
-                RETURNING id
-            `;
-        }
+    async delete(id) {
+        const query = `DELETE FROM pf_zones WHERE id = $1 RETURNING id`;
 
         const { rows } = await pool.query(query, [id]);
 
@@ -302,10 +273,7 @@ class ZoneRepository {
             throw notFoundError;
         }
 
-        return {
-            deletedId: rows[0]?.id,
-            isHardDelete
-        };
+        return humps.camelizeKeys(rows[0]);
     }
 }
 

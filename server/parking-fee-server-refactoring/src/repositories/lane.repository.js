@@ -18,10 +18,9 @@ class LaneRepository {
                 name, 
                 type, 
                 description, 
-                code, 
-                is_active
+                code
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
         `;
         
@@ -30,12 +29,30 @@ class LaneRepository {
             data.name, 
             data.type || 'IN', 
             data.description || null, 
-            data.code || null,
-            true // is_active 기본값 true
+            data.code || null
         ];
 
         try {
+            await pool.query('BEGIN'); 
+
             const { rows } = await pool.query(query, values);
+            const newLaneId = rows[0].id;
+
+            const deviceIds = [];
+            if (data.inIntegratedGate?.id) deviceIds.push(data.inIntegratedGate.id);
+            if (data.outIntegratedGate?.id) deviceIds.push(data.outIntegratedGate.id);
+
+            if (deviceIds.length > 0) {
+                const updateDevicesQuery = `
+                    UPDATE pf_devices 
+                    SET lane_id = $1 
+                    WHERE id = ANY($2)
+                `;
+                await pool.query(updateDevicesQuery, [newLaneId, deviceIds]);
+            }
+
+            await pool.query('COMMIT'); 
+
             return humps.camelizeKeys(rows[0]);
         } catch (error) {
             if (error.code === '23505') { // Unique Violation
@@ -55,24 +72,27 @@ class LaneRepository {
     /**
      * 다목적 목록 조회 (Find All)
      * - 기본 컬럼 검색 및 날짜 범위 검색
-     * - 조회 결과에 해당 Lane에 속한 Devices 요약 정보 포함
      */
     async findAll(filters, sortOptions, limit, offset) {
-        // Lanes + Devices(요약) 조인
+
+        // 옵저버 요청에 맞춘 반환 형식
         let query = `
             SELECT l.*, 
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', d.id,
-                               'name', d.name,
-                               'type', d.type,
-                               'status', d.status,
-                               'isActive', d.is_active
-                           ) ORDER BY d.name ASC
-                       ) FILTER (WHERE d.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_devices
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', d.id,
+                            'name', d.name,
+                            'type', d.type,
+                            'status', d.status,
+                            'ipAddress', d.ip_address,
+                            'port', d.port,
+                            'direction', d.direction,
+                            'location', d.location
+                        ) ORDER BY d.name ASC
+                    ) FILTER (WHERE d.id IS NOT NULL), 
+                    '[]'
+                ) as devices
             FROM pf_lanes l
             LEFT JOIN pf_devices d ON l.id = d.lane_id
         `;
@@ -82,7 +102,7 @@ class LaneRepository {
         let paramIndex = 1;
 
         const textColumns = ['name', 'description', 'code'];
-        const exactColumns = ['id', 'zone_id', 'type', 'is_active'];
+        const exactColumns = ['id', 'zone_id', 'type'];
 
         Object.keys(filters).forEach(key => {
             const value = filters[key];
@@ -135,6 +155,7 @@ class LaneRepository {
             query += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
+        // 옵저버 요청에 맞춘 반환 형식
         query += ` GROUP BY l.id`;
 
         // 정렬 적용
@@ -185,8 +206,7 @@ class LaneRepository {
                                'id', d.id,
                                'name', d.name,
                                'type', d.type,
-                               'status', d.status,
-                               'isActive', d.is_active
+                               'status', d.status
                            ) ORDER BY d.name ASC
                        ) FILTER (WHERE d.id IS NOT NULL), 
                        '[]'
@@ -280,33 +300,20 @@ class LaneRepository {
     }
 
     /**
-     * 삭제 (Hard/Soft)
+     * 삭제 (Delete)
      */
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM pf_lanes WHERE id = $1 RETURNING id`;
-        } else {
-            query = `
-                UPDATE pf_lanes 
-                SET is_active = false, updated_at = NOW() 
-                WHERE id = $1 
-                RETURNING id
-            `;
-        }
+    async delete(id) {
+        const query = `DELETE FROM pf_lanes WHERE id = $1 RETURNING id`;
         
         const { rows } = await pool.query(query, [id]);
-        
+
         if (rows.length === 0) {
             const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
             notFoundError.status = 404;
             throw notFoundError;
         }
-
-        return { 
-            deletedId: rows[0]?.id, 
-            isHardDelete 
-        };
+        
+        return humps.camelizeKeys(rows[0]);
     }
 }
 

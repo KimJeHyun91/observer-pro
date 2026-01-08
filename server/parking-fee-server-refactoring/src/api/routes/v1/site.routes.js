@@ -43,6 +43,13 @@ router.patch('/:id', siteValidator.updateSite, validate, siteController.update);
  */
 router.delete('/:id', siteValidator.deleteSite, validate, siteController.delete);
 
+/**
+ * @route   GET /api/v1/sites/:id/tree
+ * @desc    사이트 트리 조회
+ * @access  Public (또는 Protected)
+ */
+router.get('/:id/tree', siteValidator.getSiteTree, validate, siteController.findTree);
+
 router.use(errorHandler);
 
 module.exports = router;

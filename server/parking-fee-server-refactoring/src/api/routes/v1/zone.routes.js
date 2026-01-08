@@ -9,7 +9,6 @@ const errorHandler = require('../../middlewares/error-handler');
  * @route   GET /api/v1/zones
  * @desc    구역(Zone) 목록 조회
  * - 모든 컬럼 검색, 정렬, 페이지네이션 지원
- * - 각 구역별 차선(Lane) 요약 정보 포함
  * @access  Public (또는 Protected)
  */
 router.get('/', zoneValidator.getZones, validate, zoneController.findAll);
@@ -38,7 +37,7 @@ router.patch('/:id', zoneValidator.updateZone, validate, zoneController.update);
 
 /**
  * @route   DELETE /api/v1/zones/:id
- * @desc    구역(Zone) 삭제 (Soft/Hard Delete)
+ * @desc    구역(Zone) 삭제 (Delete)
  * @access  Admin
  */
 router.delete('/:id', zoneValidator.deleteZone, validate, zoneController.delete);

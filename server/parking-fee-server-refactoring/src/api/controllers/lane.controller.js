@@ -14,15 +14,15 @@ class LaneController {
      */
     async create(req, res, next) {
         try {
-            const lane = await laneService.create(req.body);
+            const data = await laneService.create(req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
             }
-            res.status(200).json({});
+            res.status(200).json({ status: 'ok' });
 
-            // res.status(201).json({ status: 'ok', data: lane });
+            // res.status(200).json({ status: 'ok', data: lane });
         } catch (error) {
             next(error);
         }
@@ -38,8 +38,34 @@ class LaneController {
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const result = await laneService.findAll(params);
-            res.status(200).json({ status: 'ok', data: result });
+            const data = await laneService.findAll(params);
+
+            const mappedLanes = data.lanes.map(lane => ({
+                id: lane.id,
+                zoneId: lane.zoneId,
+                name: lane.name,
+                createdAt: lane.createdAt,
+                updatedAt: lane.updatedAt,
+                devices: (lane.devices || []).map(device => ({
+                    id: device.id,
+                    laneId: lane.id,
+                    ipAddress: device.ipAddress,
+                    port: device.port,
+                    type: device.type,
+                    direction: device.direction,
+                    location: device.location
+                }))
+            }));
+            const response = {
+                status: "ok",
+                data: {
+                    lanes: mappedLanes,
+                    meta: data.meta
+                }
+            };
+            return res.status(200).json(response);
+
+            // res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -54,8 +80,8 @@ class LaneController {
     async findDetail(req, res, next) {
         try {
             const { id } = req.params;
-            const lane = await laneService.findDetail(id);
-            res.status(200).json({ status: 'ok', data: lane });
+            const data = await laneService.findDetail(id);
+            res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -70,15 +96,15 @@ class LaneController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedLane = await laneService.update(id, req.body);
+            const data = await laneService.update(id, req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
             }
-            res.status(200).json({});
+            res.status(200).json({ status: 'ok' });
 
-            // res.status(200).json({ status: 'ok', data: updatedLane });
+            // res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -86,8 +112,6 @@ class LaneController {
 
     /**
      * 삭제 (Delete)
-     * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
-     * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -95,25 +119,20 @@ class LaneController {
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const method = req.query.method || 'HARD';
 
-            console.log(method);
-            const isHardDelete = method === 'HARD';
-            
-            const result = await laneService.delete(id, isHardDelete);
-            
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            const data = await laneService.delete(id);
+
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
             }
-            res.status(200).json({});
-            
+            res.status(200).json({ status: 'ok' });
+
             // res.status(200).json({ 
             //     status: 'ok', 
             //     message: 'site가 성공적으로 삭제되었습니다.',
             //     data: {
             //         id: id,
-            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
             //     }
             // });
         } catch (error) {

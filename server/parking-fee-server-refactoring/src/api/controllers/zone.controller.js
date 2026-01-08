@@ -14,15 +14,15 @@ class ZoneController {
      */
     async create(req, res, next) {
         try {
-            const zone = await zoneService.create(req.body);
+            const data = await zoneService.create(req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
             }
-            res.status(200).json({});
+            res.status(200).json({ status: 'ok' });
 
-            // res.status(201).json({ status: 'ok', data: zone });
+            // res.status(200).json({ status: 'ok', data: zone });
         } catch (error) {
             next(error);
         }
@@ -38,8 +38,32 @@ class ZoneController {
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const result = await zoneService.findAll(params);
-            res.status(200).json({ status: 'ok', data: result });
+            const data = await zoneService.findAll(params);
+
+
+            // 옵저버 요청에 맞춘 반환 형식
+            const zonesOnly = data.zones.map(zone => ({
+                id: zone.id,
+                siteId: zone.siteId,
+                name: zone.name,
+                createdAt: zone.createdAt,
+                updatedAt: zone.updatedAt
+            }));
+            const response = {
+                status: "ok",
+                data: {
+                    zones: zonesOnly,
+                    meta: {
+                        totalItems: data.meta.totalItems,
+                        totalPages: data.meta.totalPages,
+                        currentPage: data.meta.currentPage,
+                        itemsPerPage: data.meta.itemsPerPage
+                    }
+                }
+            };
+            res.status(200).json(response);
+
+            // res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -54,8 +78,8 @@ class ZoneController {
     async findDetail(req, res, next) {
         try {
             const { id } = req.params;
-            const zone = await zoneService.findDetail(id);
-            res.status(200).json({ status: 'ok', data: zone });
+            const data = await zoneService.findDetail(id);
+            res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -70,15 +94,15 @@ class ZoneController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedZone = await zoneService.update(id, req.body);
-            
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
+            const data = await zoneService.update(id, req.body);
 
-            // res.status(200).json({ status: 'ok', data: updatedZone });
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+            }
+            res.status(200).json({ status: 'ok' });
+
+            // res.status(200).json({ status: 'ok', data: data });
         } catch (error) {
             next(error);
         }
@@ -86,8 +110,6 @@ class ZoneController {
 
     /**
      * 삭제 (Delete)
-     * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
-     * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -95,25 +117,20 @@ class ZoneController {
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const method = req.query.method || 'HARD';
-
-            console.log(method);
-            const isHardDelete = method === 'HARD';
             
-            const result = await zoneService.delete(id, isHardDelete);
+            const data = await zoneService.delete(id);
             
-            // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            // 옵저버 요청에 맞춘 반환 형식
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
             }
-            res.status(200).json({});
+            res.status(200).json({ status: 'ok' });
 
             // res.status(200).json({ 
             //     status: 'ok', 
             //     message: 'site가 성공적으로 삭제되었습니다.',
             //     data: {
-            //         id: id,
-            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
+            //         id: id
             //     }
             // });
         } catch (error) {

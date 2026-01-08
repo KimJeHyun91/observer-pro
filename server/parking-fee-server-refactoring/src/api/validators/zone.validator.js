@@ -39,7 +39,6 @@ exports.getZone = [
  */
 exports.deleteZone = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
 ];
 
 /**
@@ -62,7 +61,6 @@ exports.getZones = [
     query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    query('isActive').optional().isBoolean().withMessage('isActive는 true 또는 false이어야 합니다.'),
     query('createdAtStart')
         .optional()
         .isISO8601()

@@ -11,6 +11,7 @@ exports.createLane = [
     body('type').optional().isIn(['IN', 'OUT', 'BOTH']).withMessage("type은 'IN', 'OUT', 'BOTH' 중 하나여야 합니다."),
 
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
+
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 ];
@@ -41,11 +42,9 @@ exports.getLane = [
 
 /**
  * 차선 삭제 유효성 검사
- * - method 파라미터 확인
  */
 exports.deleteLane = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
 ];
 
 /**
@@ -70,7 +69,6 @@ exports.getLanes = [
     query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    query('isActive').optional().isBoolean().withMessage('isActive는 true 또는 false이어야 합니다.'),
     query('createdAtStart')
         .optional()
         .isISO8601()

@@ -25,10 +25,9 @@ class SiteRepository {
                 address_detail, 
                 total_capacity, 
                 capacity_detail,
-                status,
-                is_active
+                status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
         `;
         
@@ -47,8 +46,7 @@ class SiteRepository {
             data.addressDetail,
             data.totalCapacity || 0, 
             capacityDetail,
-            data.status,
-            true
+            data.status
         ];
 
         try {
@@ -59,25 +57,14 @@ class SiteRepository {
 
             const newSiteId = rows[0].id;
 
-            const columnNames = ['site_id', 'device_controller_id'];
-            const placeholders = [];
-            const flatValues = [];
-
-            data.deviceControllerIdList.forEach((controllerId, index) => {
-                const offset = index * columnNames.length;
-                
-                placeholders.push(`($${offset + 1}, $${offset + 2})`);
-
-                flatValues.push(newSiteId);
-                flatValues.push(controllerId);
-            });
-
-            const mappingQuery = `
-                INSERT INTO pf_site_device_controllers (${columnNames.join(', ')}) 
-                VALUES ${placeholders.join(', ')}
-            `;
-
-            await pool.query(mappingQuery, flatValues);
+            if (data.deviceControllerIdList && data.deviceControllerIdList.length > 0) {
+                const updateControllersQuery = `
+                    UPDATE pf_device_controllers 
+                    SET site_id = $1 
+                    WHERE id = ANY($2)
+                `;
+                await pool.query(updateControllersQuery, [newSiteId, data.deviceControllerIdList]);
+            }
 
             await pool.query('COMMIT');
 
@@ -271,7 +258,6 @@ class SiteRepository {
                                 'name', z.name,
                                 'code', z.code,
                                 'description', z.description,
-                                'isActive', z.is_active
                             ) ORDER BY z.name ASC
                         ), 
                         '[]'
@@ -291,7 +277,6 @@ class SiteRepository {
                                 'ipAddress', dc.ip_address,
                                 'port', dc.port,
                                 'status', dc.status,
-                                'isActive', dc.is_active
                             ) ORDER BY dc.name ASC
                         ), 
                         '[]'
@@ -399,7 +384,69 @@ class SiteRepository {
             throw notFoundError;
         }
         
-        return rows;
+        return humps.camelizeKeys(rows[0]);
+    }
+
+    /**
+     * 트리 조회(Find Tree) 
+     */
+    async findTree(siteId) {
+        const query = `
+            SELECT 
+                s.*,
+                -- 1. 사이트에 소속된 제어기들 (Device Controllers)
+                COALESCE(
+                    (SELECT jsonb_agg(dc_tree)
+                    FROM (
+                        SELECT * FROM pf_device_controllers 
+                        WHERE site_id = s.id 
+                        ORDER BY name ASC
+                    ) dc_tree
+                    ), '[]'::jsonb
+                ) AS device_controllers,
+                
+                -- 2. 사이트 > 구역(Zones) > 차선(Lanes) > 장비(Devices) 계층 구조
+                COALESCE(
+                    (SELECT jsonb_agg(zone_tree)
+                    FROM (
+                        SELECT 
+                            z.*,
+                            COALESCE(
+                                (SELECT jsonb_agg(lane_tree)
+                                FROM (
+                                    SELECT 
+                                        l.*,
+                                        COALESCE(
+                                            (SELECT jsonb_agg(device_tree)
+                                            FROM (
+                                                SELECT * FROM pf_devices 
+                                                WHERE lane_id = l.id 
+                                                ORDER BY name ASC
+                                            ) device_tree
+                                            ), '[]'::jsonb
+                                        ) AS devices
+                                    FROM pf_lanes l
+                                    WHERE l.zone_id = z.id 
+                                    ORDER BY l.name ASC
+                                ) lane_tree
+                                ), '[]'::jsonb
+                            ) AS lanes
+                        FROM pf_zones z
+                        WHERE z.site_id = s.id
+                        ORDER BY z.name ASC
+                    ) zone_tree
+                    ), '[]'::jsonb
+                ) AS zones
+            FROM pf_sites s
+            WHERE s.id = $1;
+        `;
+
+        const { rows } = await pool.query(query, [siteId]);
+
+        if (rows.length === 0) return null;
+
+        // humps를 통해 snake_case를 camelCase로 일괄 변환
+        return humps.camelizeKeys(rows[0]);
     }
 
 }

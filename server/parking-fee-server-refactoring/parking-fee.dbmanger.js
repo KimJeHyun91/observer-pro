@@ -67,9 +67,9 @@ async function initParkingFeeDbSchema() {
             CREATE TABLE IF NOT EXISTS pf_sites (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
 
-                name TEXT NOT NULL, -- 주차장 이름
-                description TEXT,   -- 주차장 설명
-                code TEXT,          -- 주차장 코드
+                name TEXT NOT NULL UNIQUE,  -- 주차장 이름
+                description TEXT,           -- 주차장 설명
+                code TEXT,                  -- 주차장 코드
 
                 manager_name TEXT,  -- 담당자 이름
                 manager_phone TEXT, -- 담당자 연락처  
@@ -92,11 +92,9 @@ async function initParkingFeeDbSchema() {
 
                 status TEXT CHECK (status IN ('normal', 'error', 'log')), -- 주차장 상태
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS sites_name_idx ON pf_sites (name) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_sites;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_sites FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -113,12 +111,12 @@ async function initParkingFeeDbSchema() {
                 description TEXT,   -- 구역 설명
                 code TEXT,          -- 구역 코드
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_zones_site_name UNIQUE (site_id, name)
             );
             CREATE INDEX IF NOT EXISTS zones_site_id_idx ON pf_zones (site_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS zones_site_name_idx ON pf_zones (site_id, name) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_zones;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_zones FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -137,12 +135,12 @@ async function initParkingFeeDbSchema() {
                 description TEXT,   -- 차선 설명
                 code TEXT,          -- 차선 코드     
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_lanes_zone_name UNIQUE (zone_id, name)
             );
             CREATE INDEX IF NOT EXISTS lanes_zone_id_idx ON pf_lanes (zone_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS lanes_zone_name_idx ON pf_lanes (zone_id, name) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_lanes;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_lanes FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -154,11 +152,13 @@ async function initParkingFeeDbSchema() {
             CREATE TABLE IF NOT EXISTS pf_device_controllers (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
 
+                site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
+
                 type TEXT NOT NULL CHECK (type IN ('SERVER', 'EMBEDDED', 'MIDDLEWARE')),    -- 장비 제어기 유형
 
-                name TEXT,          -- 장비 제어기 이름
-                description TEXT,   -- 장비 제어기 설명
-                code TEXT,          -- 장비 제어기 코드
+                name TEXT NOT NULL,         -- 장비 제어기 이름
+                description TEXT,           -- 장비 제어기 설명
+                code TEXT,                  -- 장비 제어기 코드
 
                 ip_address INET NOT NULL,       -- 대상 시스템 IP
                 port INTEGER NOT NULL,          -- 대상 시스템 포트
@@ -166,22 +166,15 @@ async function initParkingFeeDbSchema() {
 
                 config JSONB,   -- 추가 설정 (JSON)
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_device_controllers_site_name UNIQUE (site_id, name),
+                CONSTRAINT uq_pf_device_controllers_site_network UNIQUE (site_id, ip_address, port)
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_name_idx ON pf_device_controllers (name) WHERE is_active = true;
-            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_ip_address_port_idx ON pf_device_controllers (ip_address, port) WHERE is_active = true;
+            CREATE INDEX IF NOT EXISTS device_controllers_site_id_idx ON pf_device_controllers (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_device_controllers;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_device_controllers FOR EACH ROW EXECUTE FUNCTION update_timestamp();
-
-            CREATE TABLE IF NOT EXISTS pf_site_device_controllers (
-                id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-                site_id UUID NOT NULL REFERENCES pf_sites(id) ON DELETE CASCADE,
-                device_controller_id UUID NOT NULL REFERENCES pf_device_controllers(id) ON DELETE CASCADE,
-
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            );
         `);
 
         // =================================================================
@@ -217,18 +210,18 @@ async function initParkingFeeDbSchema() {
                 status TEXT DEFAULT 'UNKNOWN',  -- 장비 연결 상태 (ONLINE/OFFLINE)    
                 last_heartbeat TIMESTAMPTZ,     -- 마지막 상태 확인 시간
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_devices_site_name UNIQUE (site_id, name),
+                CONSTRAINT uq_pf_devices_site_network UNIQUE (site_id, ip_address, port),
+                CONSTRAINT uq_pf_devices_controller_name UNIQUE (device_controller_id, name)
             );
             CREATE INDEX IF NOT EXISTS devices_site_id_idx ON pf_devices (site_id);
             CREATE INDEX IF NOT EXISTS devices_zone_id_idx ON pf_devices (zone_id);
             CREATE INDEX IF NOT EXISTS devices_lane_id_idx ON pf_devices (lane_id);
             CREATE INDEX IF NOT EXISTS devices_controller_id_idx ON pf_devices (device_controller_id);
             CREATE INDEX IF NOT EXISTS devices_parent_id_idx ON pf_devices (parent_device_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS devices_site_name_idx ON pf_devices (site_id, name) WHERE is_active = true;
-            CREATE UNIQUE INDEX IF NOT EXISTS devices_site_ip_address_port_idx ON pf_devices (site_id, ip_address, port) WHERE is_active = true;
-            CREATE UNIQUE INDEX IF NOT EXISTS devices_controller_name_idx ON pf_devices (device_controller_id, name) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_devices;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_devices FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -274,11 +267,12 @@ async function initParkingFeeDbSchema() {
                 -- membership_validity_days: integer    - 회원 적용 기간(일)
                 config JSONB NOT NULL,
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_policies_site_name UNIQUE (site_id, name)
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS policies_site_name_idx ON pf_policies (site_id, name) WHERE is_active = true;
+            CREATE INDEX IF NOT EXISTS policies_site_id_idx ON pf_policies (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_policies;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_policies FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -308,8 +302,11 @@ async function initParkingFeeDbSchema() {
 
                 is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_members_site_car_number UNIQUE (site_id, car_number)
             );
+            CREATE INDEX IF NOT EXISTS members_site_id_idx ON pf_members (site_id);
             CREATE INDEX IF NOT EXISTS members_car_number_idx ON pf_members (car_number);
             CREATE INDEX IF NOT EXISTS members_phone_hash_idx ON pf_members (phone_hash);
             CREATE INDEX IF NOT EXISTS members_name_hash_idx ON pf_members (name_hash);
@@ -342,6 +339,7 @@ async function initParkingFeeDbSchema() {
             );
             CREATE INDEX IF NOT EXISTS member_payment_histories_member_id_idx ON pf_member_payment_histories (member_id);
             CREATE INDEX IF NOT EXISTS member_payment_histories_paid_at_idx ON pf_member_payment_histories (paid_at);
+            CREATE INDEX IF NOT EXISTS member_payment_histories_dates_idx ON pf_member_payment_histories (start_date, end_date);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_member_payment_histories;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_member_payment_histories FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -357,12 +355,13 @@ async function initParkingFeeDbSchema() {
                 car_number TEXT NOT NULL,   -- 차량 번호
                 reason TEXT,                -- 제한 사유
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_blacklists_site_car_number UNIQUE (site_id, car_number)
             );
+            CREATE INDEX IF NOT EXISTS blacklists_site_id_idx ON pf_blacklists (site_id);
             CREATE INDEX IF NOT EXISTS blacklists_car_number_idx ON pf_blacklists (car_number);
-            CREATE UNIQUE INDEX IF NOT EXISTS blacklists_site_car_idx ON pf_blacklists (site_id, car_number) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_blacklists;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_blacklists FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -382,11 +381,12 @@ async function initParkingFeeDbSchema() {
                 date DATE NOT NULL,                 -- 날짜
                 is_recurring BOOLEAN DEFAULT false, -- 매년 반복 여부
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT uq_pf_holidays_site_date UNIQUE (site_id, date)
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS holidays_site_date_idx ON pf_holidays (site_id, date) WHERE is_active = true;
+            CREATE INDEX IF NOT EXISTS holidays_site_id_idx ON pf_holidays (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_holidays;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_holidays FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -419,7 +419,7 @@ async function initParkingFeeDbSchema() {
                 exit_lane_name TEXT,    -- 출차 차선 이름
                 exit_lane_code TEXT,    -- 출차 차선 코드
                 exit_time TIMESTAMPTZ,  -- 출차 시각     
-                exit_image TEXT,        -- 출차 이미지 URL   
+                exit_image_url TEXT,    -- 출차 이미지 URL   
         
                 car_number TEXT NOT NULL,           -- 차량 번호 (미인식 시 'UNKNOWN' 등으로 저장)
                 vehicle_type TEXT DEFAULT 'NORMAL', -- 차량 유형 (NORMAL, MEMBER, COMPACT, ELECTRIC)
@@ -454,12 +454,13 @@ async function initParkingFeeDbSchema() {
                 updated_at TIMESTAMPTZ
             );
             
-            CREATE INDEX IF NOT EXISTS idx_parking_sessions_current ON pf_parking_sessions (site_id, car_number) WHERE exit_time IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_parking_sessions_site_id ON pf_parking_sessions (site_id);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_car_number ON pf_parking_sessions (car_number);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_status ON pf_parking_sessions (status);
+            CREATE INDEX IF NOT EXISTS idx_parking_sessions_entry_time ON pf_parking_sessions (entry_time);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_exit_time ON pf_parking_sessions (exit_time);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_discounts ON pf_parking_sessions USING GIN (applied_discounts);
-            
+            CREATE INDEX IF NOT EXISTS idx_sessions_site_status ON pf_parking_sessions (site_id, status);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_parking_sessions;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_parking_sessions FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -512,6 +513,8 @@ async function initParkingFeeDbSchema() {
                 device_name TEXT,   -- 결제 장비 이름
                 device_code TEXT,   -- 결제 장비 코드
 
+                version INTEGER DEFAULT 1 NOT NULL, -- 낙관적 락을 위한 버전 관리 컬럼
+
                 transaction_id UUID,    -- 시스템에서 생성한 거래 식별자
                 total_amount INTEGER,   -- 최종 결제 금액
                 payment_method TEXT,    -- 결제 수단(CARD, APP, POINT, DISCOUNT, CASH)
@@ -522,7 +525,7 @@ async function initParkingFeeDbSchema() {
                 --
                 -- 카드 결제
                 -- approval_no: integer         - 카드 승인 번호
-                -- card_number: text            - 암호화 한 카드 번호 (취소/환불 시 필요)
+                -- card_number: text            - 양방향 암호화 한 카드 번호 (취소/환불 시 필요)
                 -- card_number_masked: text     - 마스크 처리한 카드 번호 (영수증 출력용)
                 -- card_number_hash: text       - 단방향 암호화 한 카드 번호 (동일 카드 재사용 통계, 부정 사용 감지용)
                 -- issuer: text                 - 카드사 정보
@@ -542,15 +545,15 @@ async function initParkingFeeDbSchema() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS pf_system_event_logs (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(), 
-                site_id UUID NOT NULL,                  -- 사이트 ID
-                site_name TEXT NOT NULL,                -- 사이트 이름
-                site_code TEXT,                         -- 사이트 코드
-                zone_id UUID,                           -- 구역 ID
-                zone_name TEXT,                         -- 구역 이름
-                zone_code TEXT,                         -- 구역 코드
-                lane_id UUID,                           -- 차선 ID
-                lane_name TEXT,                         -- 차선 이름
-                lane_code TEXT,                         -- 차선 코드
+                site_id UUID NOT NULL,      -- 사이트 ID
+                site_name TEXT NOT NULL,    -- 사이트 이름
+                site_code TEXT,             -- 사이트 코드
+                zone_id UUID,               -- 구역 ID
+                zone_name TEXT,             -- 구역 이름
+                zone_code TEXT,             -- 구역 코드
+                lane_id UUID,               -- 차선 ID
+                lane_name TEXT,             -- 차선 이름
+                lane_code TEXT,             -- 차선 코드
 
                 device_controller_id UUID,    -- 소속 장비 제어기 ID
                 device_controller_name TEXT,  -- 소속 장비 제어기 이름
@@ -574,9 +577,9 @@ async function initParkingFeeDbSchema() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS pf_communication_logs (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-                site_id UUID,                           -- 사이트 ID
-                site_name TEXT,                         -- 사이트 이름
-                site_code TEXT,                         -- 사이트 코드
+                site_id UUID,   -- 사이트 ID
+                site_name TEXT, -- 사이트 이름
+                site_code TEXT, -- 사이트 코드
 
                 device_controller_id UUID,      -- 장비 제어기 ID
                 device_controller_name TEXT,    -- 장비 제어기 이름
@@ -596,6 +599,8 @@ async function initParkingFeeDbSchema() {
             CREATE INDEX IF NOT EXISTS idx_communication_logs_time ON pf_communication_logs (time);
             CREATE INDEX IF NOT EXISTS idx_communication_logs_payload ON pf_communication_logs USING GIN (payload);
         `);
+
+        // 12.5 pf_audit_logs (감사 로그)
 
         // =================================================================
         // 13. [최적화] pg_partman 파티션 자동화 적용
@@ -642,5 +647,4 @@ async function initParkingFeeDbSchema() {
     }
 }
 
-// 모듈로 사용 시 export
 module.exports = { initParkingFeeDbSchema };

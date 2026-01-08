@@ -77,10 +77,6 @@ class SiteService {
      * @param {Object} data - 수정할 데이터
      */
     async update(id, data) {
-        // 존재 여부 확인
-        await this.findDetail(id);
-        
-        // Repository에는 허용된 필드만 포함된 data가 전달되어야 안전함 (Validator에서 1차 필터링됨)
         return await this.siteRepository.update(id, data);
     }
 
@@ -90,6 +86,18 @@ class SiteService {
      */
     async delete(id) {
         return await this.siteRepository.delete(id);
+    }
+
+    /**
+     * 트리 조회 (Find Tree)
+     * @param {string} id - UUID
+     */
+    async findTree(id) {
+        const site = await this.siteRepository.findTree(id);
+        if (!site) {
+            throw new Error('Site not found');
+        }
+        return site;
     }
     
 }

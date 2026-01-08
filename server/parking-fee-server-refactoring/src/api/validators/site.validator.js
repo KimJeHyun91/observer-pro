@@ -74,6 +74,13 @@ exports.getSite = [
 ];
 
 /**
+ * 사이트 트리 조회 유효성 검사
+ */
+exports.getSiteTree = [
+    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
+];
+
+/**
  * 사이트 삭제 유효성 검사
  */
 exports.deleteSite = [
@@ -130,7 +137,6 @@ exports.getSites = [
     query('capacityDetailWomenMin').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailWomenMax').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMax는 0 이상의 정수여야 합니다.'),
 
-    query('isActive').optional().isBoolean().withMessage('isActive는 true 또는 false이어야 합니다.'),
     query('createdAtStart')
         .optional()
         .isISO8601()

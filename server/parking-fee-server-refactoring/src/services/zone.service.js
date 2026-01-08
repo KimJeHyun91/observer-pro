@@ -73,22 +73,15 @@ class ZoneService {
      * @param {Object} data - 수정할 데이터
      */
     async update(id, data) {
-        // 존재 여부 확인
-        await this.findDetail(id);
-        
-        // Repository에는 허용된 필드만 포함된 data가 전달되어야 안전함 (Validator에서 1차 필터링됨)
         return await this.zoneRepository.update(id, data);
     }
 
     /**
      * 삭제 (Delete)
      * @param {string} id - UUID
-     * @param {boolean} isHardDelete - 완전 삭제 여부
      */
-    async delete(id, isHardDelete) {
-        // 존재 여부 확인
-        await this.findDetail(id);
-        return await this.zoneRepository.delete(id, isHardDelete);
+    async delete(id) {
+        return await this.zoneRepository.delete(id);
     }
 }
 

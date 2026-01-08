@@ -16,7 +16,7 @@ class DeviceController {
         try {
             const data = await deviceService.create(req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
@@ -72,7 +72,7 @@ class DeviceController {
             const { id } = req.params;
             const updatedData = await deviceService.update(id, req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
@@ -102,7 +102,7 @@ class DeviceController {
             
             const result = await deviceService.delete(id, isHardDelete);
             
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }

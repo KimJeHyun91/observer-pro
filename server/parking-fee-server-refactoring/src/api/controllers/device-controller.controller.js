@@ -16,7 +16,7 @@ class DeviceControllerController {
         try {
             const data = await service.create(req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if((data) && (data.rowCount > 0) && (global.websocket)) {
                 global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
@@ -72,7 +72,7 @@ class DeviceControllerController {
             const { id } = req.params;
             const data = await service.update(id, req.body);
 
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if((data) && (data.rowCount > 0) && (global.websocket)) {
                 global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
@@ -100,7 +100,7 @@ class DeviceControllerController {
             
             const data = await service.delete(id, isHardDelete);
             
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if((data) && (data.rowCount > 0) && (global.websocket)) {
                 global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
@@ -131,7 +131,7 @@ class DeviceControllerController {
 
             const data = await service.deleteMultiple(deviceControllerIdList);
             
-            // 옵저버 프로 구조에 맞춘 반환 형식
+            // 옵저버 요청에 맞춘 반환 형식
             if((data) && (data.rowCount > 0) && (global.websocket)) {
                 global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
