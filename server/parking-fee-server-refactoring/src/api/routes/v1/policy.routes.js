@@ -3,6 +3,7 @@ const router = express.Router();
 const controller = require('../../controllers/policy.controller');
 const validator = require('../../validators/policy.validator');
 const validate = require('../../middlewares/validator');
+const errorHandler = require('../../middlewares/error-handler');
 
 /**
  * @route   GET /api/v1/policies
@@ -40,5 +41,7 @@ router.patch('/:id', validator.updatePolicy, validate, controller.update);
  * @access  Admin
  */
 router.delete('/:id', validator.deletePolicy, validate, controller.delete);
+
+router.use(errorHandler);
 
 module.exports = router;

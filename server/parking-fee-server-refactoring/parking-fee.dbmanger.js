@@ -530,9 +530,9 @@ async function initParkingFeeDbSchema() {
             CREATE INDEX IF NOT EXISTS idx_payment_logs_transaction_id ON pf_payment_logs (transaction_id);
         `);
 
-        // 12.3 pf_system_action_logs (시스템 액션 로그)
+        // 12.3 pf_system_event_logs (시스템 이벤트 로그)
         await client.query(`
-            CREATE TABLE IF NOT EXISTS pf_system_action_logs (
+            CREATE TABLE IF NOT EXISTS pf_system_event_logs (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(), 
                 site_id UUID NOT NULL,                  -- 사이트 ID
                 site_name TEXT NOT NULL,                -- 사이트 이름
@@ -558,8 +558,8 @@ async function initParkingFeeDbSchema() {
 
                 created_at TIMESTAMPTZ DEFAULT NOW()   -- 데이터 생성 일시
             );
-            CREATE INDEX IF NOT EXISTS idx_device_event_logs_device_time ON pf_system_action_logs (device_id, time);
-            CREATE INDEX IF NOT EXISTS idx_device_event_logs_raw_data ON pf_system_action_logs USING GIN (raw_data);
+            CREATE INDEX IF NOT EXISTS idx_device_event_logs_device_time ON pf_system_event_logs (device_id, time);
+            CREATE INDEX IF NOT EXISTS idx_device_event_logs_raw_data ON pf_system_event_logs USING GIN (raw_data);
         `);
 
         // 12.4 pf_communication_logs (통신 로그)
@@ -598,7 +598,7 @@ async function initParkingFeeDbSchema() {
         //     { parent: 'pf_vehicle_detection_logs', control: 'event_time' },
         //     { parent: 'pf_parking_sessions', control: 'entry_time' },
         //     { parent: 'pf_payment_logs', control: 'paid_at' },
-        //     { parent: 'pf_system_action_logs', control: 'time' },
+        //     { parent: 'pf_system_event_logs', control: 'time' },
         //     { parent: 'pf_communication_logs', control: 'time' }
         // ];
 

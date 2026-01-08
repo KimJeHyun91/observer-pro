@@ -6,7 +6,6 @@ const cameraMapper = require('../mappers/cameraMapper');
 const { getExportArchiveVideoTime } = require('../../../utils/formatDateTime');
 const { callSleep } = require('../../../worker/delaySync');
 
-
 exports.getVmsList = async () => {
   
   const client = await pool.connect();

@@ -15,6 +15,12 @@ class LaneController {
     async create(req, res, next) {
         try {
             const lane = await laneService.create(req.body);
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+
             res.status(201).json({ status: 'ok', data: lane });
         } catch (error) {
             next(error);
@@ -64,6 +70,12 @@ class LaneController {
         try {
             const { id } = req.params;
             const updatedLane = await laneService.update(id, req.body);
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+
             res.status(200).json({ status: 'ok', data: updatedLane });
         } catch (error) {
             next(error);
@@ -87,6 +99,11 @@ class LaneController {
             const isHardDelete = method === 'HARD';
             
             const result = await laneService.delete(id, isHardDelete);
+            
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
             
             res.status(200).json({ 
                 status: 'ok', 

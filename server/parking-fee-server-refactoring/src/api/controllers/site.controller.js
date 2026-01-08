@@ -15,7 +15,14 @@ class SiteController {
     async create(req, res, next) {
         try {
             const site = await siteService.create(req.body);
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            
             res.status(200).json({ status: 'ok', data: site });
+
         } catch (error) {
             next(error);
         }
@@ -55,7 +62,7 @@ class SiteController {
     }
 
     /**
-     * 정보 수정 (Update)
+     * 수정 (Update)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -64,6 +71,12 @@ class SiteController {
         try {
             const { id } = req.params;
             const updatedSite = await siteService.update(id, req.body);
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+
             res.status(200).json({ status: 'ok', data: updatedSite });
         } catch (error) {
             next(error);
@@ -71,7 +84,7 @@ class SiteController {
     }
 
     /**
-     * 사이트 삭제 (Delete)
+     * 삭제 (Delete)
      * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
      * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
@@ -87,7 +100,12 @@ class SiteController {
             const isHardDelete = method === 'HARD';
             
             const result = await siteService.delete(id, isHardDelete);
-            
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+
             res.status(200).json({ 
                 status: 'ok', 
                 message: 'site가 성공적으로 삭제되었습니다.',
