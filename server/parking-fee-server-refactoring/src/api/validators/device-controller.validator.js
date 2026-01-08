@@ -5,9 +5,7 @@ const { body, query, param } = require('express-validator');
  * - 필수: siteId, ipAddress
  * - 선택: name, description, code, port, config 등
  */
-exports.createDeviceController = [
-    body('siteId').notEmpty().withMessage('siteId는 필수입니다.').isUUID().withMessage('유효한 siteId가 필요합니다.'),
-    
+exports.createDeviceController = [    
     body('type').optional().isString().withMessage('type은 SERVER, EMBEDDED, MIDDELWARE 이어야 합니다.'),
 
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
@@ -51,11 +49,17 @@ exports.getDeviceController = [
 
 /**
  * 장비 제어기 삭제 유효성 검사
- * - method 파라미터 확인
  */
 exports.deleteDeviceController = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
     query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
+];
+
+/**
+ * 장비 제어기 다중 삭제 유효성 검사
+ */
+exports.deleteMultipleDeviceController = [
+    body('deviceControllerIdList').notEmpty().withMessage('삭제할 ID 목록이 비어있습니다.').isArray({ min: 1, max: 100 }).withMessage('ID 목록은 배열 형태여야 합니다.')
 ];
 
 /**

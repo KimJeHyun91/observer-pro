@@ -14,7 +14,6 @@ class DeviceControllerRepository {
     async create(data) {
         const query = `
             INSERT INTO pf_device_controllers (
-                site_id, 
                 name, 
                 description, 
                 code,
@@ -25,12 +24,11 @@ class DeviceControllerRepository {
                 config, 
                 is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
         `;
         
         const values = [
-            data.siteId, 
             data.name, 
             data.description || null, 
             data.code || null,
@@ -91,7 +89,7 @@ class DeviceControllerRepository {
         let paramIndex = 1;
 
         const textColumns = ['name', 'description', 'code', 'status'];
-        const exactColumns = ['id', 'site_id', 'port', 'is_active'];
+        const exactColumns = ['id', 'port', 'is_active'];
 
         Object.keys(filters).forEach(key => {
             const value = filters[key];
@@ -321,6 +319,24 @@ class DeviceControllerRepository {
             deletedId: rows[0]?.id, 
             isHardDelete 
         };
+    }
+
+    /**
+     * Device Controller 삭제 (Hard/Soft)
+     */
+    async deleteMultiple(deviceControllerIdList) {
+        
+        const query = 'DELETE FROM pf_device_controllers WHERE id = ANY($1::uuid[]) RETURNING id';
+        
+        const { rows } = await pool.query(query, [deviceControllerIdList]);
+        
+        if (rows.length === 0) {
+            const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
+            notFoundError.status = 404;
+            throw notFoundError;
+        }
+
+        return rows;
     }
 }
 

@@ -20,8 +20,9 @@ class DeviceController {
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(201).json({ status: 'ok', data });
+            // res.status(201).json({ status: 'ok', data });
         } catch (error) {
             next(error);
         }
@@ -75,8 +76,9 @@ class DeviceController {
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(200).json({ status: 'ok', data: updatedData });
+            // res.status(200).json({ status: 'ok', data: updatedData });
         } catch (error) {
             next(error);
         }
@@ -104,15 +106,16 @@ class DeviceController {
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(200).json({ 
-                status: 'ok', 
-                message: 'site가 성공적으로 삭제되었습니다.',
-                data: {
-                    id: id,
-                    method: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // res.status(200).json({ 
+            //     status: 'ok', 
+            //     message: 'site가 성공적으로 삭제되었습니다.',
+            //     data: {
+            //         id: id,
+            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }

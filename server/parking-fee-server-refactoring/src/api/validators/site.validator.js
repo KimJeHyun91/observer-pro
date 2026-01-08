@@ -8,6 +8,8 @@ exports.createSite = [
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
+    body('status').optional().isString().withMessage('status는 문자열이어야합니다.'),   
+
     body('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
     body('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
 
@@ -15,6 +17,8 @@ exports.createSite = [
     body('zipCode').optional().isString().withMessage('zipCode는 문자열이어야합니다.'),
     body('addressBase').optional().isString().withMessage('addressBase는 문자열이어야합니다.'),
     body('addressDetail').optional().isString().withMessage('addressDetail는 문자열이어야합니다.'),
+
+    body('deviceControllerIdList').notEmpty().withMessage('deviceControllerIdList는 필수입니다.'),
     
     // 주차 면수 정보 검증
     body('totalCapacity').optional().isInt({ min: 0 }).withMessage('totalCapacity는 0 이상의 정수여야 합니다.'),
@@ -38,6 +42,8 @@ exports.updateSite = [
     body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
+
+    body('status').optional().isString().withMessage('status는 문자열이어야합니다.'),   
 
     body('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
     body('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
@@ -77,7 +83,6 @@ exports.deleteSite = [
 
 /**
  * 사이트 목록 조회 유효성 검사
- * - 범위 검색 파라미터 추가
  */
 exports.getSites = [
     // 페이징
@@ -106,22 +111,22 @@ exports.getSites = [
     query('totalCapacityMax').optional().isInt({ min: 0 }).withMessage('totalCapacityMax는 0 이상의 정수여야 합니다.'),
 
     // capacityDetail 내부 필드 범위 검색
-    // general
+    // general (일반)
     query('capacityDetailGeneralMin').optional().isInt({ min: 0 }).withMessage('capacityDetailGeneralMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailGeneralMax').optional().isInt({ min: 0 }).withMessage('capacityDetailGeneralMax는 0 이상의 정수여야 합니다.'),
-    // disabled
+    // disabled (장애인)
     query('capacityDetailDisabledMin').optional().isInt({ min: 0 }).withMessage('capacityDetailDisabledMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailDisabledMax').optional().isInt({ min: 0 }).withMessage('capacityDetailDisabledMax는 0 이상의 정수여야 합니다.'),
-    // compact
+    // compact (경차)
     query('capacityDetailCompactMin').optional().isInt({ min: 0 }).withMessage('capacityDetailCompactMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailCompactMax').optional().isInt({ min: 0 }).withMessage('capacityDetailCompactMax는 0 이상의 정수여야 합니다.'),
-    // ev_slow
+    // evSlow (전기차 완속 충전)
     query('capacityDetailEvSlowMin').optional().isInt({ min: 0 }).withMessage('capacityDetailEvSlowMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailEvSlowMax').optional().isInt({ min: 0 }).withMessage('capacityDetailEvSlowMax는 0 이상의 정수여야 합니다.'),
-    // ev_fast
+    // evFast (전기차 고속 충전)
     query('capacityDetailEvFastMin').optional().isInt({ min: 0 }).withMessage('capacityDetailEvFastMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailEvFastMax').optional().isInt({ min: 0 }).withMessage('capacityDetailEvFastMax는 0 이상의 정수여야 합니다.'),
-    // women
+    // women (여성)
     query('capacityDetailWomenMin').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMin는 0 이상의 정수여야 합니다.'),
     query('capacityDetailWomenMax').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMax는 0 이상의 정수여야 합니다.'),
 
@@ -130,7 +135,7 @@ exports.getSites = [
         .optional()
         .isISO8601()
         .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(), // Date 객체로 변환
+        .toDate(),
 
     query('createdAtEnd')
         .optional()
@@ -148,7 +153,7 @@ exports.getSites = [
         .optional()
         .isISO8601()
         .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(), // Date 객체로 변환
+        .toDate(),
 
     query('updatedAtEnd')
         .optional()

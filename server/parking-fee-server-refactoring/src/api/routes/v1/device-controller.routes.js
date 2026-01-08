@@ -38,11 +38,17 @@ router.patch('/:id', validator.updateDeviceController, validate, controller.upda
 
 /**
  * @route   DELETE /api/v1/device-controllers/:id
- * @desc    장비 제어 서비스 삭제 (Soft/Hard Delete)
- * - deleteMethod 파라미터('SOFT' | 'HARD')에 따라 동작
+ * @desc    장비 제어 서비스 삭제
  * @access  Admin
  */
 router.delete('/:id', validator.deleteDeviceController, validate, controller.delete);
+
+/**
+ * @route   DELETE /api/v1/device-controllers
+ * @desc    장비 제어 서비스 다중 삭제
+ * @access  Admin
+ */
+router.delete('/', validator.deleteMultipleDeviceController, validate, controller.deleteMultiple);
 
 router.use(errorHandler);
 

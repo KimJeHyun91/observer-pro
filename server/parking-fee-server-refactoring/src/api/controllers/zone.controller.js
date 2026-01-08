@@ -20,8 +20,9 @@ class ZoneController {
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(201).json({ status: 'ok', data: zone });
+            // res.status(201).json({ status: 'ok', data: zone });
         } catch (error) {
             next(error);
         }
@@ -70,12 +71,14 @@ class ZoneController {
         try {
             const { id } = req.params;
             const updatedZone = await zoneService.update(id, req.body);
+            
             // 옵저버 프로 구조에 맞춘 반환 형식
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(200).json({ status: 'ok', data: updatedZone });
+            // res.status(200).json({ status: 'ok', data: updatedZone });
         } catch (error) {
             next(error);
         }
@@ -103,15 +106,16 @@ class ZoneController {
             if(global.websocket) {
                 global.websocket.emit("pf_parking_status-update", { "message": "ok" });
             }
+            res.status(200).json({});
 
-            res.status(200).json({ 
-                status: 'ok', 
-                message: 'site가 성공적으로 삭제되었습니다.',
-                data: {
-                    id: id,
-                    method: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // res.status(200).json({ 
+            //     status: 'ok', 
+            //     message: 'site가 성공적으로 삭제되었습니다.',
+            //     data: {
+            //         id: id,
+            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }

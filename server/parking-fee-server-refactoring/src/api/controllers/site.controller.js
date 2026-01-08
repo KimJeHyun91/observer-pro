@@ -14,14 +14,15 @@ class SiteController {
      */
     async create(req, res, next) {
         try {
-            const site = await siteService.create(req.body);
+            const data = await siteService.create(req.body);
 
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
             
-            res.status(200).json({ status: 'ok', data: site });
+            // res.status(200).json({ status: 'ok', data: site });
 
         } catch (error) {
             next(error);
@@ -39,7 +40,21 @@ class SiteController {
         try {
             const params = req.query;
             const result = await siteService.findAll(params);
-            res.status(200).json({ status: 'ok', data: result });
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            res.status(200).json({ 
+                status: 'ok', 
+                data: {
+                    sites: result.sites.map(site => ({
+                        id: site.id,
+                        name: site.name,
+                        status: site.status, 
+                        createdAt: site.createdAt,
+                        updatedAt: site.updatedAt
+                    })),
+                    meta: result.meta
+                }
+            });
         } catch (error) {
             next(error);
         }
@@ -70,14 +85,15 @@ class SiteController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedSite = await siteService.update(id, req.body);
+            const data = await siteService.update(id, req.body);
 
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
 
-            res.status(200).json({ status: 'ok', data: updatedSite });
+            // res.status(200).json({ status: 'ok', data: updatedSite });
         } catch (error) {
             next(error);
         }
@@ -85,8 +101,6 @@ class SiteController {
 
     /**
      * 삭제 (Delete)
-     * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
-     * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -94,26 +108,23 @@ class SiteController {
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const method = req.query.method || 'HARD';
 
-            console.log(method);
-            const isHardDelete = method === 'HARD';
-            
-            const result = await siteService.delete(id, isHardDelete);
+            const data = await siteService.delete(id);
 
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
 
-            res.status(200).json({ 
-                status: 'ok', 
-                message: 'site가 성공적으로 삭제되었습니다.',
-                data: {
-                    id: id,
-                    method: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // res.status(200).json({ 
+            //     status: 'ok', 
+            //     message: 'site가 성공적으로 삭제되었습니다.',
+            //     data: {
+            //         id: id,
+            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }

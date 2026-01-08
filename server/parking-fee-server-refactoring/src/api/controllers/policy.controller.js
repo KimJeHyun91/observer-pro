@@ -12,7 +12,14 @@ class PolicyController {
     async create(req, res, next) {
         try {
             const data = await service.create(req.body);
-            res.status(201).json({ status: 'success', data });
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
+
+            // res.status(201).json({ status: 'success', data });
         } catch (error) {
             next(error);
         }
@@ -51,7 +58,14 @@ class PolicyController {
         try {
             const { id } = req.params;
             const updatedData = await service.update(id, req.body);
-            res.status(200).json({ status: 'success', data: updatedData });
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
+
+            // res.status(200).json({ status: 'success', data: updatedData });
         } catch (error) {
             next(error);
         }
@@ -69,14 +83,20 @@ class PolicyController {
             
             const result = await service.delete(id, isHardDelete);
             
-            res.status(200).json({ 
-                status: 'success', 
-                message: 'Policy deleted successfully',
-                data: {
-                    id: id,
-                    deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
+            
+            // res.status(200).json({ 
+            //     status: 'success', 
+            //     message: 'Policy deleted successfully',
+            //     data: {
+            //         id: id,
+            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }

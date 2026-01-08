@@ -10,7 +10,6 @@ const errorHandler = require('../../middlewares/error-handler');
  * @desc    사이트 목록 조회
  * - 모든 컬럼에 대한 검색 지원
  * - 정렬 및 페이지네이션 지원
- * - 각 사이트별 구역(Zone) 요약 정보 포함
  * @access  Public (또는 Protected)
  */
 router.get('/', siteValidator.getSites, validate, siteController.findAll);
@@ -18,7 +17,7 @@ router.get('/', siteValidator.getSites, validate, siteController.findAll);
 /**
  * @route   GET /api/v1/sites/:id
  * @desc    사이트 상세 조회
- * - 해당 사이트의 상세 정보 및 구역(Zone) 목록 반환
+ * - 해당 사이트의 상세 정보 및 구역(Zone), 장비 제어기(Device Controller) 목록 반환
  * @access  Public
  */
 router.get('/:id', siteValidator.getSite, validate, siteController.findDetail);

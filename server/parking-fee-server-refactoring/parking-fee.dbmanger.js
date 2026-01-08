@@ -90,6 +90,8 @@ async function initParkingFeeDbSchema() {
                 --women: integer       - 여성 우선/전용 주차면 수 
                 capacity_detail JSONB DEFAULT '{}' NOT NULL,
 
+                status TEXT CHECK (status IN ('normal', 'error', 'log')), -- 주차장 상태
+
                 is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
@@ -151,7 +153,6 @@ async function initParkingFeeDbSchema() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS pf_device_controllers (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-                site_id UUID NOT NULL REFERENCES pf_sites(id) ON DELETE CASCADE,
 
                 type TEXT NOT NULL CHECK (type IN ('SERVER', 'EMBEDDED', 'MIDDLEWARE')),    -- 장비 제어기 유형
 
@@ -169,11 +170,18 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
             );
-            CREATE INDEX IF NOT EXISTS device_controllers_site_id_idx ON pf_device_controllers (site_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_name_idx ON pf_device_controllers (site_id, name) WHERE is_active = true;
-            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_ip_address_port_idx ON pf_device_controllers (site_id, ip_address, port) WHERE is_active = true;
+            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_name_idx ON pf_device_controllers (name) WHERE is_active = true;
+            CREATE UNIQUE INDEX IF NOT EXISTS device_controllers_site_ip_address_port_idx ON pf_device_controllers (ip_address, port) WHERE is_active = true;
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_device_controllers;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_device_controllers FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+
+            CREATE TABLE IF NOT EXISTS pf_site_device_controllers (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+                site_id UUID NOT NULL REFERENCES pf_sites(id) ON DELETE CASCADE,
+                device_controller_id UUID NOT NULL REFERENCES pf_device_controllers(id) ON DELETE CASCADE,
+
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
         `);
 
         // =================================================================

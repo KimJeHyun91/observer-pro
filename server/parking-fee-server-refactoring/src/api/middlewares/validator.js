@@ -9,11 +9,12 @@ const validate = (req, res, next) => {
   if (!errors.isEmpty()) {
     return res.status(400).json({
       status: 'fail',
-      errors: errors.array().map(err => ({
-        field: err.path,
-        message: err.msg,
-        value: err.value
-      }))
+      // errors: errors.array().map(err => ({
+      //   field: err.path,
+      //   message: err.msg,
+      //   value: err.value  
+      // }))
+      message: errors.array()[0].msg,
     });
   }
   next();

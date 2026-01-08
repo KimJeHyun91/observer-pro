@@ -9,7 +9,7 @@ const humps = require('humps');
 class SiteRepository {
     
     /**
-     * 생성
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
@@ -25,9 +25,10 @@ class SiteRepository {
                 address_detail, 
                 total_capacity, 
                 capacity_detail,
+                status,
                 is_active
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `;
         
@@ -46,14 +47,46 @@ class SiteRepository {
             data.addressDetail,
             data.totalCapacity || 0, 
             capacityDetail,
+            data.status,
             true
         ];
 
         try {
+
+            await pool.query('BEGIN');
+
             const { rows } = await pool.query(query, values);
+
+            const newSiteId = rows[0].id;
+
+            const columnNames = ['site_id', 'device_controller_id'];
+            const placeholders = [];
+            const flatValues = [];
+
+            data.deviceControllerIdList.forEach((controllerId, index) => {
+                const offset = index * columnNames.length;
+                
+                placeholders.push(`($${offset + 1}, $${offset + 2})`);
+
+                flatValues.push(newSiteId);
+                flatValues.push(controllerId);
+            });
+
+            const mappingQuery = `
+                INSERT INTO pf_site_device_controllers (${columnNames.join(', ')}) 
+                VALUES ${placeholders.join(', ')}
+            `;
+
+            await pool.query(mappingQuery, flatValues);
+
+            await pool.query('COMMIT');
+
             // DB 결과(스네이크케이스)를 카멜케이스 객체로 변환하여 반환
             return humps.camelizeKeys(rows[0]);
         } catch (error) {
+
+            await pool.query('ROLLBACK');
+            
             // PostgreSQL Unique Violation Code: 23505
             if (error.code === '23505') {
                 const conflictError = new Error('이미 존재하는 데이터입니다.');
@@ -78,23 +111,8 @@ class SiteRepository {
      * - 정렬 및 페이징 적용
      */
     async findAll(filters, sortOptions, limit, offset) {
-        // 기본 쿼리: Sites 테이블 + Zones 테이블 조인 (JSON으로 말아서 pf_zones 컬럼에 반환)
-        let query = `
-            SELECT s.*, 
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', z.id,
-                               'name', z.name,
-                               'code', z.code,
-                               'isActive', z.is_active
-                           ) ORDER BY z.name ASC
-                       ) FILTER (WHERE z.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_zones
-            FROM pf_sites s
-            LEFT JOIN pf_zones z ON s.id = z.site_id
-        `;
+
+        let query = `SELECT s.* FROM pf_sites s`;
 
         const whereClauses = [];
         const values = [];
@@ -197,9 +215,6 @@ class SiteRepository {
             query += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
-        // Aggregation을 위한 Group By
-        query += ` GROUP BY s.id`;
-
         // 정렬 적용
         let sortBy = sortOptions.sortBy || 'createdAt';
         // 정렬 키를 스네이크케이스로 변환
@@ -239,41 +254,71 @@ class SiteRepository {
     }
 
     /**
-     * 단일 조회 (상세)
+     * 단일 조회 (Find Detail)
      */
     async findById(id) {
+
         const query = `
-            SELECT s.*, 
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', z.id,
-                               'name', z.name,
-                               'code', z.code,
-                               'isActive', z.is_active
-                           ) ORDER BY z.name ASC
-                       ) FILTER (WHERE z.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_zones
+            SELECT 
+                s.*,
+                
+                -- 1. Zones 정보 가져오기 (1:N)
+                (
+                    SELECT COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', z.id,
+                                'name', z.name,
+                                'code', z.code,
+                                'description', z.description,
+                                'isActive', z.is_active
+                            ) ORDER BY z.name ASC
+                        ), 
+                        '[]'
+                    )
+                    FROM pf_zones z 
+                    WHERE z.site_id = s.id
+                ) as zones,
+
+                -- 2. Device Controllers 정보 가져오기 (N:M via mapping table)
+                (
+                    SELECT COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', dc.id,
+                                'name', dc.name,
+                                'type', dc.type,
+                                'ipAddress', dc.ip_address,
+                                'port', dc.port,
+                                'status', dc.status,
+                                'isActive', dc.is_active
+                            ) ORDER BY dc.name ASC
+                        ), 
+                        '[]'
+                    )
+                    FROM pf_site_device_controllers sdc
+                    JOIN pf_device_controllers dc ON dc.id = sdc.device_controller_id
+                    WHERE sdc.site_id = s.id
+                ) as device_controllers
+
             FROM pf_sites s
-            LEFT JOIN pf_zones z ON s.id = z.site_id
             WHERE s.id = $1
-            GROUP BY s.id
         `;
 
         const { rows } = await pool.query(query, [id]);
 
-        if (!rows[0]) {
+        if (!rows.length) {
             const notFoundError = new Error('해당하는 데이터를 찾을 수 없습니다.');
             notFoundError.status = 404;
             throw notFoundError;
         }
 
+        // DB snake_case -> JS camelCase 자동 변환
         return rows[0] ? humps.camelizeKeys(rows[0]) : null;
     }
 
     /**
-     * 수정
+     * 수정 (Update)
      */
     async update(id, data) {
         const keys = Object.keys(data);
@@ -341,34 +386,20 @@ class SiteRepository {
     }
 
     /**
-     * 삭제
+     * 삭제 (Delete)
      */
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM pf_sites WHERE id = $1 RETURNING id`;
-        } else {
-            query = `
-                UPDATE pf_sites 
-                SET is_active = false, updated_at = NOW() 
-                WHERE id = $1 
-                RETURNING id
-            `;
-        }
+    async delete(id) {
+        const query = `DELETE FROM pf_sites WHERE id = $1 RETURNING id`;
         
         const { rows } = await pool.query(query, [id]);
 
-        // 삭제할 대상이 없는 경우
         if (rows.length === 0) {
             const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
             notFoundError.status = 404;
             throw notFoundError;
         }
         
-        return { 
-            deletedId: rows[0]?.id, 
-            isHardDelete 
-        };
+        return rows;
     }
 
 }

@@ -86,6 +86,15 @@ class DeviceControllerService {
         await this.findDetail(id);
         return await this.repository.delete(id, isHardDelete);
     }
+
+    /**
+     * 삭제 (Delete Multiple)
+     * @param {Array<string>} deviceControllerIdList - UUID
+     * @param {boolean} isHardDelete - 완전 삭제 여부
+     */
+    async deleteMultiple(deviceControllerIdList) {
+        return await this.repository.deleteMultiple(deviceControllerIdList);
+    }
     
     // =================================================================
     // [핵심] 장비 동기화 기능 (Sync Devices)

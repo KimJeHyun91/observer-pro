@@ -17,11 +17,12 @@ class DeviceControllerController {
             const data = await service.create(req.body);
 
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
 
-            res.status(201).json({ status: 'ok', data });
+            // res.status(200).json({ status: 'ok', data });
         } catch (error) {
             next(error);
         }
@@ -69,14 +70,15 @@ class DeviceControllerController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedData = await service.update(id, req.body);
+            const data = await service.update(id, req.body);
 
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
 
-            res.status(200).json({ status: 'ok', data: updatedData });
+            // res.status(200).json({ status: 'ok', data: updatedData });
         } catch (error) {
             next(error);
         }
@@ -96,25 +98,61 @@ class DeviceControllerController {
             const deleteMethod = req.query.deleteMethod || 'SOFT';
             const isHardDelete = deleteMethod === 'HARD';
             
-            const result = await service.delete(id, isHardDelete);
+            const data = await service.delete(id, isHardDelete);
             
             // 옵저버 프로 구조에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
             }
+            res.status(200).json({ status: 'ok' });
 
-            res.status(200).json({ 
-                status: 'ok', 
-                message: 'Device Controller deleted successfully',
-                data: {
-                    id: id,
-                    deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // res.status(200).json({ 
+            //     status: 'ok', 
+            //     message: 'Device Controller deleted successfully',
+            //     data: {
+            //         id: id,
+            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }
     }
+
+    /**
+     * 다중 삭제 (Delete)
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
+     */
+    async deleteMultiple(req, res, next) {
+        try {
+            const { deviceControllerIdList } = req.body;
+
+            const data = await service.deleteMultiple(deviceControllerIdList);
+            
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if((data) && (data.rowCount > 0) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
+            }
+            res.status(200).json({ status: 'ok' });
+
+            // res.status(200).json({ 
+            //     status: 'ok', 
+            //     message: 'Device Controller deleted successfully',
+            //     data: {
+            //         id: id,
+            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
+        } catch (error) {
+            next(error);
+        }
+    }
+    
+
+
+
 }
 
 module.exports = new DeviceControllerController();

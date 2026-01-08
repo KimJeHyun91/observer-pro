@@ -87,13 +87,9 @@ class SiteService {
     /**
      * 삭제 (Delete)
      * @param {string} id - UUID
-     * @param {boolean} isHardDelete - 완전 삭제 여부
      */
-    async delete(id, isHardDelete) {
-        // 존재 여부 확인
-        await this.findDetail(id);
-        console.log(isHardDelete);
-        return await this.siteRepository.delete(id, isHardDelete);
+    async delete(id) {
+        return await this.siteRepository.delete(id);
     }
     
 }

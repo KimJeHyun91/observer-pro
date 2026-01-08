@@ -12,7 +12,14 @@ class MemberController {
     async create(req, res, next) {
         try {
             const data = await service.create(req.body);
-            res.status(201).json({ status: 'success', data });
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
+
+            // res.status(201).json({ status: 'success', data });
         } catch (error) {
             next(error);
         }
@@ -25,7 +32,14 @@ class MemberController {
         try {
             const params = req.query;
             const result = await service.findAll(params);
-            res.status(200).json({ status: 'success', data: result });
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
+
+            // res.status(200).json({ status: 'success', data: result });
         } catch (error) {
             next(error);
         }
@@ -68,15 +82,21 @@ class MemberController {
             const isHardDelete = deleteMethod === 'HARD';
             
             const result = await service.delete(id, isHardDelete);
+
+            // 옵저버 프로 구조에 맞춘 반환 형식
+            if(global.websocket) {
+                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            }
+            res.status(200).json({});
             
-            res.status(200).json({ 
-                status: 'success', 
-                message: 'Member deleted successfully',
-                data: {
-                    id: id,
-                    deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
-                }
-            });
+            // res.status(200).json({ 
+            //     status: 'success', 
+            //     message: 'Member deleted successfully',
+            //     data: {
+            //         id: id,
+            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
+            //     }
+            // });
         } catch (error) {
             next(error);
         }
