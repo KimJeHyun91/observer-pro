@@ -1,11 +1,11 @@
-const MemberService = require('../../services/member.service');
-const memberService = new MemberService();
+const MemberPaymentHistoryService = require('../../services/member-payment-history.service');
+const memberPaymentHistoryService = new MemberPaymentHistoryService();
 
 /**
  * Member Payment History Controller
  * - 회원 결제 기록 관련 HTTP 요청을 처리하는 컨트롤러입니다.
  */
-class MemberController {
+class MemberPaymentHistoryController {
     /**
      * 생성 (Create)
      * @param {Object} req - Express request object
@@ -14,7 +14,7 @@ class MemberController {
      */
     async create(req, res, next) {
         try {
-            const data = await memberService.create(req.body);            
+            const data = await memberPaymentHistoryService.create(req.body);            
             res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
@@ -31,7 +31,7 @@ class MemberController {
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const data = await memberService.findAll(params);
+            const data = await memberPaymentHistoryService.findAll(params);
             res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
@@ -47,7 +47,7 @@ class MemberController {
     async findDetail(req, res, next) {
         try {
             const { id } = req.params;
-            const data = await memberService.findDetail(id);
+            const data = await memberPaymentHistoryService.findDetail(id);
             res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
@@ -63,35 +63,12 @@ class MemberController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const data = await memberService.update(id, req.body);
+            const data = await memberPaymentHistoryService.update(id, req.body);
             res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
-    }
-
-    /**
-     * 삭제 (Delete)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async delete(req, res, next) {
-        try {
-            const { id } = req.params;
-
-            const data = await memberService.delete(id);
-            res.status(200).json({ 
-                status: 'OK', 
-                message: '성공적으로 삭제되었습니다.',
-                data: {
-                    id: data.id
-                }
-            });
         } catch (error) {
             next(error);
         }
     }
 }
 
-module.exports = new MemberController();
+module.exports = new MemberPaymentHistoryController();

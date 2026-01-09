@@ -2,8 +2,6 @@ const { body, query, param } = require('express-validator');
 
 /**
  * 장비 생성 유효성 검사
- * - 필수: siteId, deviceControllerId, type, name
- * - 선택: zoneId, laneId, parentDeviceId, ipAddress, port 등
  */
 exports.createDevice = [
     body('siteId').optional().isUUID().withMessage('유효한 siteId가 필요합니다.'),
@@ -73,11 +71,9 @@ exports.getDevice = [
 
 /**
  * 장비 삭제 유효성 검사
- * - deleteMethod 파라미터 확인
  */
 exports.deleteDevice = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
 ];
 
 /**
@@ -91,7 +87,7 @@ exports.getDevices = [
     
     // 정렬
     query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().isIn(['ASC', 'DESC', 'asc', 'desc']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
+    query('sortOrder').optional().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
     
     // 검색 조건
     query('siteId').optional().isUUID().withMessage('유효한 UUID가 아닙니다.'),
@@ -102,7 +98,7 @@ exports.getDevices = [
     
     query('parentDeviceId').optional().isUUID().withMessage('유효한 parentDeviceId여야 합니다.'),
 
-    query('direction').optional().isIn(['IN, OUT, BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
+    query('direction').optional().toUpperCase().isIn(['IN', 'OUT', 'BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
 
     query('type').optional().isIn(['INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP']).withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP' 중 하나여야 합니다."),
 
@@ -118,7 +114,7 @@ exports.getDevices = [
     query('connectionType').optional().isString().withMessage('connectionType 문자열이어야 합니다'),
     query('serialNumber').optional().isString().withMessage('serialNumber 문자열이어야 합니다'),
     query('firmwareVersion').optional().isString().withMessage('firmwareVersion 문자열이어야 합니다'),
-    query('direction').optional().isIn(['IN, OUT, BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
+    query('direction').optional().toUpperCase().isIn(['IN, OUT, BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
     query('location').optional().isString().withMessage('location 문자열이어야 합니다'),
 
     query('status').optional().isString().withMessage('status는 문자열 이어야 합니다.'),
@@ -129,7 +125,6 @@ exports.getDevices = [
         .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
         .toDate(), // Date 객체로 변환
 
-    query('isActive').optional().isBoolean().withMessage('isActive는 true 또는 false이어야 합니다.'),
     query('createdAtStart')
         .optional()
         .isISO8601()

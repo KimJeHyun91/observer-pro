@@ -242,6 +242,7 @@ class SiteRepository {
 
     /**
      * 단일 조회 (Find Detail)
+     * - Device Controllers, Zones 목록을 포함해서 반환
      */
     async findById(id) {
 

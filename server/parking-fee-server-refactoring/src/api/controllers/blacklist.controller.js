@@ -7,96 +7,88 @@ const service = new BlacklistService();
  */
 class BlacklistController {
     /**
-     * 블랙리스트 생성 (Create)
+     * 생성 (Create)
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
      */
     async create(req, res, next) {
         try {
             const data = await service.create(req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
-
-            // res.status(201).json({ status: 'success', data });
+            res.status(201).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
     }
 
     /**
-     * 블랙리스트 목록 조회 (Find All)
+     * 목록 조회 (Find All)
+     * - 검색, 정렬, 페이징 처리가 적용된 목록을 반환합니다.
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
      */
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const result = await service.findAll(params);
-            res.status(200).json({ status: 'success', data: result });
+            const data = await service.findAll(params);
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
     }
 
     /**
-     * 블랙리스트 상세 조회 (Find Detail)
+     * 상세 조회 (Find Detail)
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
      */
     async findDetail(req, res, next) {
         try {
             const { id } = req.params;
             const data = await service.findDetail(id);
-            res.status(200).json({ status: 'success', data });
+            res.status(200).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
     }
 
     /**
-     * 블랙리스트 정보 수정 (Update)
+     * 수정 (Update)
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
      */
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedData = await service.update(id, req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
-
-            // res.status(200).json({ status: 'success', data: updatedData });
+            const data = await service.update(id, req.body);
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
     }
 
     /**
-     * 블랙리스트 삭제 (Delete)
-     * - deleteMethod('SOFT'|'HARD')에 따라 처리
+     * 삭제 (Delete)
+     * @param {Object} req - Express request object
+     * @param {Object} res - Express response object
+     * @param {Function} next - Express next middleware function
      */
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const deleteMethod = req.query.deleteMethod || 'SOFT';
-            const isHardDelete = deleteMethod === 'HARD';
             
-            const result = await service.delete(id, isHardDelete);
+            const data = await service.delete(id);
 
-            // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
-            
-            // res.status(200).json({ 
-            //     status: 'success', 
-            //     message: 'Blacklist deleted successfully',
-            //     data: {
-            //         id: id,
-            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
-            //     }
-            // });
+            res.status(200).json({ 
+                status: 'OK', 
+                message: '성공적으로 삭제되었습니다.',
+                data: {
+                    id: data.id
+                }
+            });
         } catch (error) {
             next(error);
         }

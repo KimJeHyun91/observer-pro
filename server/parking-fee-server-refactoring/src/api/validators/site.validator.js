@@ -8,8 +8,6 @@ exports.createSite = [
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    body('status').optional().isString().withMessage('status는 문자열이어야합니다.'),   
-
     body('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
     body('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
 
@@ -85,7 +83,6 @@ exports.getSiteTree = [
  */
 exports.deleteSite = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
 ];
 
 /**
@@ -98,12 +95,12 @@ exports.getSites = [
     
     // 정렬
     query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().isIn(['ASC', 'DESC', 'asc', 'desc']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
+    query('sortOrder').optional().toUpperCase().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
     
     // 기본 검색
     query('name').optional().isString().withMessage('name은 문자열이어야합니다.'),
-    body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
+    query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
+    query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
     query('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
     query('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),

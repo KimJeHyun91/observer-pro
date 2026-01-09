@@ -17,12 +17,12 @@ class DeviceController {
             const data = await deviceService.create(req.body);
 
             // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { devicesCount: { 'add': 1 }});
             }
-            res.status(200).json({});
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(201).json({ status: 'ok', data });
+            // res.status(201).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
@@ -38,8 +38,29 @@ class DeviceController {
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const result = await deviceService.findAll(params);
-            res.status(200).json({ status: 'ok', data: result });
+            const data = await deviceService.findAll(params);
+
+            const mappedDevices = data.devices.map(device => ({
+                id: device.id,
+                siteId: device.siteId,
+                ipAddress: device.ipAddress,
+                port: device.port,
+                direction: device.direction,
+                type: device.type,
+                location: device.location,
+                createdAt: device.createdAt,
+                updatedAt: device.updatedAt
+            }));
+
+            return res.status(200).json({
+                status: 'OK',
+                data: {
+                    devices: mappedDevices,
+                    meta: data.meta
+                }
+            });
+
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -55,7 +76,7 @@ class DeviceController {
         try {
             const { id } = req.params;
             const data = await deviceService.findDetail(id);
-            res.status(200).json({ status: 'ok', data });
+            res.status(200).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
@@ -70,15 +91,8 @@ class DeviceController {
     async update(req, res, next) {
         try {
             const { id } = req.params;
-            const updatedData = await deviceService.update(id, req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
-
-            // res.status(200).json({ status: 'ok', data: updatedData });
+            const data = await deviceService.update(id, req.body);
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -86,8 +100,6 @@ class DeviceController {
 
     /**
      * 삭제 (Delete)
-     * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
-     * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -95,27 +107,16 @@ class DeviceController {
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const method = req.query.method || 'HARD';
 
-            console.log(method);
-            const isHardDelete = method === 'HARD';
-            
-            const result = await deviceService.delete(id, isHardDelete);
-            
-            // 옵저버 요청에 맞춘 반환 형식
-            if(global.websocket) {
-                global.websocket.emit("pf_parking_status-update", { "message": "ok" });
-            }
-            res.status(200).json({});
+            const data = await deviceService.delete(id);
 
-            // res.status(200).json({ 
-            //     status: 'ok', 
-            //     message: 'site가 성공적으로 삭제되었습니다.',
-            //     data: {
-            //         id: id,
-            //         method: result.isHardDelete ? 'HARD' : 'SOFT'
-            //     }
-            // });
+            res.status(200).json({ 
+                status: 'OK', 
+                message: '성공적으로 삭제되었습니다.',
+                data: {
+                    id: data.id
+                }
+            });
         } catch (error) {
             next(error);
         }

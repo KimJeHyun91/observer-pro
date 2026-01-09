@@ -3,7 +3,7 @@ const service = new DeviceControllerService();
 
 /**
  * Device Controller Controller
- * - 장비 제어 서비스(Middleware/Server) 관련 HTTP 요청 처리
+ * - 장비 제어 서비스(Device Controller) 관련 HTTP 요청 처리
  */
 class DeviceControllerController {
     /**
@@ -17,12 +17,12 @@ class DeviceControllerController {
             const data = await service.create(req.body);
 
             // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (data.rowCount > 0) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(200).json({ status: 'ok', data });
+            // res.status(200).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
@@ -38,8 +38,8 @@ class DeviceControllerController {
     async findAll(req, res, next) {
         try {
             const params = req.query;
-            const result = await service.findAll(params);
-            res.status(200).json({ status: 'ok', data: result });
+            const data = await service.findAll(params);
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -55,7 +55,7 @@ class DeviceControllerController {
         try {
             const { id } = req.params;
             const data = await service.findDetail(id);
-            res.status(200).json({ status: 'ok', data });
+            res.status(200).json({ status: 'OK', data });
         } catch (error) {
             next(error);
         }
@@ -73,12 +73,12 @@ class DeviceControllerController {
             const data = await service.update(id, req.body);
 
             // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (data.rowCount > 0) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(200).json({ status: 'ok', data: updatedData });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -86,8 +86,6 @@ class DeviceControllerController {
 
     /**
      * 삭제 (Delete)
-     * - method 파라미터('SOFT' | 'HARD')에 따라 삭제 방식 결정
-     * - 기본값은 'HARD' (완전 삭제)
      * @param {Object} req - Express request object
      * @param {Object} res - Express response object
      * @param {Function} next - Express next middleware function
@@ -95,23 +93,20 @@ class DeviceControllerController {
     async delete(req, res, next) {
         try {
             const { id } = req.params;
-            const deleteMethod = req.query.deleteMethod || 'SOFT';
-            const isHardDelete = deleteMethod === 'HARD';
             
-            const data = await service.delete(id, isHardDelete);
+            const data = await service.delete(id);
             
             // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (data.rowCount > 0) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
+            if((data) && (global.websocket)) {
+                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
             // res.status(200).json({ 
-            //     status: 'ok', 
-            //     message: 'Device Controller deleted successfully',
+            //     status: 'OK', 
+            //     message: '성공적으로 삭제되었습니다.',
             //     data: {
-            //         id: id,
-            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
+            //         id: data.id
             //     }
             // });
         } catch (error) {
@@ -133,12 +128,12 @@ class DeviceControllerController {
             
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (data.rowCount > 0) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': data.rowCount }});
+                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': data.rowCount }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
             // res.status(200).json({ 
-            //     status: 'ok', 
+            //     status: 'OK', 
             //     message: 'Device Controller deleted successfully',
             //     data: {
             //         id: id,

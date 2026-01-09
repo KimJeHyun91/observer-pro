@@ -4,11 +4,12 @@ const humps = require('humps');
 /**
  * Device Repository
  * - pf_devices 테이블 CRUD
+ * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
  */
 class DeviceRepository {
     
     /**
-     * 장치 생성
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
@@ -16,9 +17,9 @@ class DeviceRepository {
                 site_id, zone_id, lane_id, device_controller_id, parent_device_id,
                 type, name, description, code,
                 vendor, model_name, ip_address, port, mac_address, connection_type,
-                serial_number, firmware_version, location, direction, status, is_active
+                serial_number, firmware_version, location, direction, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             RETURNING *
         `;
         
@@ -42,8 +43,7 @@ class DeviceRepository {
             data.firmwareVersion || null, 
             data.location || {},
             data.direction, 
-            data.status || 'UNKNOWN',
-            true
+            data.status || 'UNKNOWN'
         ];
 
         try {
@@ -66,6 +66,9 @@ class DeviceRepository {
 
     /**
      * 다목적 목록 조회 (Find All)
+     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
+     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
+     * - 정렬 및 페이징 적용
      */
     async findAll(filters, sortOptions, limit, offset) {
         let query = `SELECT d.* FROM pf_devices d`;
@@ -75,7 +78,7 @@ class DeviceRepository {
         let paramIndex = 1;
 
         const textColumns = ['name', 'description', 'code', 'vendor', 'model_name', 'status', 'connection_type', 'serial_number', 'firmware_version'];
-        const exactColumns = ['id', 'site_id', 'zone_id', 'lane_id', 'device_controller_id', 'parent_device_id', 'type', 'port', 'direction', 'is_active'];
+        const exactColumns = ['id', 'site_id', 'zone_id', 'lane_id', 'device_controller_id', 'parent_device_id', 'type', 'port', 'direction'];
 
         Object.keys(filters).forEach(key => {
             const value = filters[key];
@@ -170,7 +173,7 @@ class DeviceRepository {
     }
 
     /**
-     * 단일 조회 (상세)
+     * 단일 조회 (Find Detail)
      */
     async findById(id) {
         const query = `SELECT * FROM pf_devices WHERE id = $1`;
@@ -186,7 +189,7 @@ class DeviceRepository {
     }
 
     /**
-     * Device 수정
+     * 수정 (Update)
      */
     async update(id, data) {
         if (Array.isArray(data)) {
@@ -257,20 +260,10 @@ class DeviceRepository {
     }
 
     /**
-     * Device 삭제 (Hard/Soft)
+     * 삭제 (Delete)
      */
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM pf_devices WHERE id = $1 RETURNING id`;
-        } else {
-            query = `
-                UPDATE pf_devices 
-                SET is_active = false, updated_at = NOW() 
-                WHERE id = $1 
-                RETURNING id
-            `;
-        }
+    async delete(id) {
+        const query = `DELETE FROM pf_devices WHERE id = $1 RETURNING id`;
         
         const { rows } = await pool.query(query, [id]);
         
@@ -280,10 +273,7 @@ class DeviceRepository {
             throw notFoundError;
         }
 
-        return { 
-            deletedId: rows[0]?.id, 
-            isHardDelete 
-        };
+        return rows[0];
     }
 }
 

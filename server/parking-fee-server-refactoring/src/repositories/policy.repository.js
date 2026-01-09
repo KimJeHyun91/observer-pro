@@ -1,70 +1,129 @@
 const { pool } = require('../../../db/postgresqlPool');
+const humps = require('humps');
 
 /**
  * Policy Repository
- * - policies 테이블 CRUD
+ * - pf_policies 테이블에 대한 직접적인 CRUD 및 쿼리 수행
+ * - 정책 설정(config) JSONB 필드의 CamelCase <-> SnakeCase 자동 변환 처리
  */
 class PolicyRepository {
+
     /**
-     * 정책 생성
-     * @param {Object} data - 생성할 정책 데이터
-     * * [Config 구조 예시 1: 요금 정책 (FEE)]
-     * {
-     * "type": "FEE",
-     * "basic_time": 30,       // 기본 시간 (분)
-     * "basic_fee": 1000,      // 기본 요금 (원)
-     * "unit_time": 10,        // 추가 단위 시간 (분)
-     * "unit_fee": 500,        // 추가 단위 요금 (원)
-     * "grace_time": 10,       // 회차(무료) 인정 시간 (분)
-     * "daily_max_fee": 20000  // 일 최대 요금 (원)
-     * }
-     * * [Config 구조 예시 2: 할인 정책 (DISCOUNT)]
-     * {
-     * "type": "DISCOUNT",
-     * "method": "PERCENT",    // 할인 방식: PERCENT(%), AMOUNT(원), FREE(전액)
-     * "value": 50,            // 할인 값: 50(%) 또는 1000(원)
-     * "target": "LIGHT_CAR",  // 적용 대상: LIGHT_CAR(경차), DISABLED(장애인), EV(전기차) 등
-     * "automatic": true       // LPR 자동 인식 적용 여부
-     * }
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
-            INSERT INTO policies (
-                site_id, name, description, code, 
-                config, is_active
+            INSERT INTO pf_policies (
+                site_id,
+                type,
+                name,
+                description,
+                code,
+                config
             )
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
         `;
+
+        // config 내부 키를 스네이크케이스로 변환 (예: baseTimeMinutes -> base_time_minutes)
+        const config = humps.decamelizeKeys(data.config || {});
+
         const values = [
-            data.site_id, data.name, data.description, data.code,
-            data.config || {}, 
-            true // is_active
+            data.siteId,
+            data.type,
+            data.name,
+            data.description,
+            data.code,
+            config
         ];
-        const { rows } = await pool.query(query, values);
-        return rows[0];
+
+        try {
+            const { rows } = await pool.query(query, values);
+
+            // DB 결과(스네이크케이스)를 카멜케이스 객체로 변환하여 반환
+            return humps.camelizeKeys(rows[0]);
+
+        } catch (error) {
+            // PostgreSQL Unique Violation Code: 23505 (site_id + name 중복)
+            if (error.code === '23505') {
+                const conflictError = new Error('해당 사이트에 이미 존재하는 정책 이름입니다.');
+                conflictError.status = 409;
+                throw conflictError;
+            }
+            // PostgreSQL Foreign Key Violation Code: 23503 (site_id 없음)
+            if (error.code === '23503') {
+                const notFoundError = new Error('존재하지 않는 사이트 ID입니다.');
+                notFoundError.status = 404;
+                throw notFoundError;
+            }
+            throw error;
+        }
     }
 
+    /**
+     * 다목적 목록 조회 (Find All)
+     * - 검색: 텍스트 컬럼 ILIKE(부분일치), 기타 컬럼 정확 일치
+     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
+     * - 정렬 및 페이징 적용
+     */
     async findAll(filters, sortOptions, limit, offset) {
-        let query = `SELECT * FROM policies`;
+        let query = `SELECT p.* FROM pf_policies p`;
 
         const whereClauses = [];
         const values = [];
         let paramIndex = 1;
 
+        // 부분 일치 검색을 허용할 텍스트 컬럼 목록 (스네이크케이스 기준)
         const textColumns = ['name', 'description', 'code'];
 
         Object.keys(filters).forEach(key => {
             const value = filters[key];
-            if (value !== undefined && value !== null && value !== '') {
-                if (textColumns.includes(key)) {
-                    whereClauses.push(`${key} ILIKE $${paramIndex}`);
-                    values.push(`%${value}%`);
-                } else {
-                    // site_id, is_active 등
-                    whereClauses.push(`${key} = $${paramIndex}`);
-                    values.push(value);
-                }
+            if (value === undefined || value === null || value === '') return;
+
+            // 1. 날짜 범위 검색
+            if (key === 'createdAtStart') {
+                whereClauses.push(`p.created_at >= $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+                return;
+            }
+            if (key === 'createdAtEnd') {
+                whereClauses.push(`p.created_at <= $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+                return;
+            }
+            if (key === 'updatedAtStart') {
+                whereClauses.push(`p.updated_at >= $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+                return;
+            }
+            if (key === 'updatedAtEnd') {
+                whereClauses.push(`p.updated_at <= $${paramIndex}`);
+                values.push(value);
+                paramIndex++;
+                return;
+            }
+
+            // 2. 일반 필드 처리 (텍스트 ILIKE 또는 정확 일치)
+            const dbCol = humps.decamelize(key);
+
+            // SQL Injection 방지를 위한 컬럼명 검증 (알파벳 소문자로 시작)
+            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
+
+            // config 필드나 존재하지 않는 컬럼 검색 방지 (필요 시 화이트리스트 적용 권장)
+            // 여기서는 textColumns에 포함되면 ILIKE, 아니면 = 로 처리
+            if (textColumns.includes(dbCol)) {
+                whereClauses.push(`p.${dbCol} ILIKE $${paramIndex}`);
+                values.push(`%${value}%`);
+                paramIndex++;
+            } else {
+                // siteId, type, id 등은 정확 일치 검색
+                // 단, config 컬럼 자체에 대한 직접 검색은 일반적으로 하지 않으므로 제외하고 싶다면 조건 추가 가능
+                // 여기서는 filters에 'config'라는 키가 직접 들어오지 않는다고 가정하거나, 들어오면 문자열 일치로 처리됨
+                whereClauses.push(`p.${dbCol} = $${paramIndex}`);
+                values.push(value);
                 paramIndex++;
             }
         });
@@ -73,33 +132,35 @@ class PolicyRepository {
             query += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
-        // 정렬
-        if (sortOptions.sortBy) {
-            const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
-            query += ` ORDER BY ${sortOptions.sortBy} ${sortOrder}`;
-        } else {
-            query += ` ORDER BY created_at DESC`;
-        }
+        // 정렬 적용
+        let sortBy = sortOptions.sortBy || 'createdAt';
+        const dbSortBy = humps.decamelize(sortBy);
+        const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+        
+        query += ` ORDER BY p.${dbSortBy} ${sortOrder}`;
 
-        // 페이징
+        // 페이징 적용
         query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         values.push(limit, offset);
 
-        // 카운트 쿼리
+        // 전체 카운트 쿼리
         const countQuery = `
-            SELECT COUNT(*) FROM policies 
+            SELECT COUNT(*) 
+            FROM pf_policies p 
             ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
         `;
 
-        const client = await pool.getClient();
+        const client = await pool.connect();
         try {
             const [countResult, rowsResult] = await Promise.all([
                 client.query(countQuery, values.slice(0, values.length - 2)),
                 client.query(query, values)
             ]);
 
+            const policies = rowsResult.rows.map(row => humps.camelizeKeys(row));
+
             return {
-                rows: rowsResult.rows,
+                rows: policies,
                 count: parseInt(countResult.rows[0].count)
             };
         } finally {
@@ -107,40 +168,166 @@ class PolicyRepository {
         }
     }
 
+    /**
+     * 단일 조회 (Find By Id)
+     */
     async findById(id) {
-        const query = `SELECT * FROM policies WHERE id = $1`;
+        const query = `SELECT * FROM pf_policies WHERE id = $1`;
         const { rows } = await pool.query(query, [id]);
-        return rows[0];
+
+        if (!rows.length) {
+            const notFoundError = new Error('해당하는 정책을 찾을 수 없습니다.');
+            notFoundError.status = 404;
+            throw notFoundError;
+        }
+
+        return humps.camelizeKeys(rows[0]);
     }
 
+    /**
+     * 수정 (Update)
+     */
     async update(id, data) {
         const keys = Object.keys(data);
         if (keys.length === 0) return null;
 
-        const setClause = keys.map((key, index) => `${key} = $${index + 2}`).join(', ');
-        const values = [id, ...Object.values(data)];
+        const setClauses = [];
+        const values = [id];
+        let valIndex = 2;
+
+        keys.forEach(key => {
+            const dbCol = humps.decamelize(key);
+            
+            // 유효하지 않은 컬럼명 무시
+            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
+
+            let value = data[key];
+
+            // config 필드는 내부 키들도 스네이크케이스로 변환
+            if (key === 'config') {
+                value = humps.decamelizeKeys(value);
+            }
+
+            setClauses.push(`${dbCol} = $${valIndex}`);
+            values.push(value);
+            valIndex++;
+        });
+
+        if (setClauses.length === 0) return null;
 
         const query = `
-            UPDATE policies 
-            SET ${setClause}, updated_at = NOW()
+            UPDATE pf_policies
+            SET ${setClauses.join(', ')}, updated_at = NOW()
             WHERE id = $1
             RETURNING *
         `;
-        
-        const { rows } = await pool.query(query, values);
-        return rows[0];
+
+        try {
+            const { rows } = await pool.query(query, values);
+
+            if (rows.length === 0) {
+                const notFoundError = new Error('수정할 정책을 찾을 수 없습니다.');
+                notFoundError.status = 404;
+                throw notFoundError;
+            }
+
+            return humps.camelizeKeys(rows[0]);
+
+        } catch (error) {
+            if (error.code === '23505') {
+                const conflictError = new Error('이미 존재하는 정책 이름입니다.');
+                conflictError.status = 409;
+                throw conflictError;
+            }
+            throw error;
+        }
     }
 
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM policies WHERE id = $1 RETURNING id`;
-        } else {
-            query = `UPDATE policies SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING id`;
-        }
+    /**
+     * 삭제 (Delete)
+     */
+    async delete(id) {
+        const query = `DELETE FROM pf_policies WHERE id = $1 RETURNING id`;
         
         const { rows } = await pool.query(query, [id]);
-        return { deletedId: rows[0]?.id, isHardDelete };
+
+        if (rows.length === 0) {
+            const notFoundError = new Error('삭제할 정책을 찾을 수 없습니다.');
+            notFoundError.status = 404;
+            throw notFoundError;
+        }
+
+        return humps.camelizeKeys(rows[0]);
+    }
+
+    /**
+     * 초기화 및 재설정 (Reset and Initialize)
+     * - Transaction을 사용하여 원자성 보장
+     * 1. 해당 site_id의 모든 정책 삭제
+     * 2. 전달받은 기본 정책 목록 일괄 생성
+     */
+    async resetAndInitialize(siteId, policyList) {
+        const client = await pool.connect(); // 트랜잭션을 위해 클라이언트 획득
+
+        try {
+            // 1. 트랜잭션 시작
+            await client.query('BEGIN');
+
+            // 2. 기존 정책 전체 삭제
+            const deleteQuery = `DELETE FROM pf_policies WHERE site_id = $1`;
+            await client.query(deleteQuery, [siteId]);
+
+            let createdPolicies = [];
+
+            // 3. 생성할 정책이 있다면 Bulk Insert 수행
+            if (policyList && policyList.length > 0) {
+                
+                // 데이터 전처리 (config 스네이크케이스 변환)
+                const processedList = policyList.map(data => ({
+                    site_id: data.siteId,
+                    type: data.type,
+                    name: data.name,
+                    description: data.description,
+                    code: data.code,
+                    config: humps.decamelizeKeys(data.config || {})
+                }));
+
+                const values = [];
+                const placeholders = processedList.map((_, index) => {
+                    const offset = index * 6; 
+                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+                });
+
+                processedList.forEach(p => {
+                    values.push(p.site_id, p.type, p.name, p.description, p.code, p.config);
+                });
+
+                // 삭제 후 생성이므로 ON CONFLICT가 필요 없음 (무조건 생성)
+                const insertQuery = `
+                    INSERT INTO pf_policies (
+                        site_id, type, name, description, code, config
+                    )
+                    VALUES ${placeholders.join(', ')}
+                    RETURNING *
+                `;
+
+                const { rows } = await client.query(insertQuery, values);
+                createdPolicies = rows.map(row => humps.camelizeKeys(row));
+            }
+
+            // 4. 트랜잭션 커밋 (성공 확정)
+            await client.query('COMMIT');
+
+            return createdPolicies;
+
+        } catch (error) {
+            // 5. 에러 발생 시 롤백 (삭제 취소, 생성 취소)
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            // 6. 커넥션 반환
+            client.release();
+        }
     }
 }
 

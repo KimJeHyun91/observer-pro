@@ -52,7 +52,7 @@ exports.getZones = [
     
     // 정렬
     query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().isIn(['ASC', 'DESC', 'asc', 'desc']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
+    query('sortOrder').optional().toUpperCase().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
     
     // 검색 조건
     query('siteId').optional().isUUID().withMessage('유효한 UUID가 아닙니다.'),

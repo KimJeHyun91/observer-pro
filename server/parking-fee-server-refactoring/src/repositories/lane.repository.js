@@ -4,12 +4,12 @@ const humps = require('humps');
 /**
  * Lane Repository
  * - pf_lanes 테이블 CRUD
- * - 하위 Devices 정보 요약 포함 (JSON Aggregation)
+ * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
  */
 class LaneRepository {
     
     /**
-     * 생성
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
@@ -37,6 +37,8 @@ class LaneRepository {
 
             const { rows } = await pool.query(query, values);
             const newLaneId = rows[0].id;
+
+            await pool.query('UPDATE pf_devices SET lane_id = NULL WHERE lane_id = $1', [newLaneId]);
 
             const deviceIds = [];
             if (data.inIntegratedGate?.id) deviceIds.push(data.inIntegratedGate.id);
@@ -71,11 +73,13 @@ class LaneRepository {
 
     /**
      * 다목적 목록 조회 (Find All)
-     * - 기본 컬럼 검색 및 날짜 범위 검색
+     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
+     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
+     * - 정렬 및 페이징 적용
      */
     async findAll(filters, sortOptions, limit, offset) {
 
-        // 옵저버 요청에 맞춘 반환 형식
+        // 옵저버 요청에 맞춘 반환 형식 (deivces 정보 동시 반환)
         let query = `
             SELECT l.*, 
                 COALESCE(
@@ -195,7 +199,8 @@ class LaneRepository {
     }
 
     /**
-     * 단일 조회 (상세)
+     * 단일 조회 (Find Detail)
+     * - Devices 목록을 포함하여 반환
      */
     async findById(id) {
         const query = `
@@ -229,73 +234,71 @@ class LaneRepository {
     }
 
     /**
-     * 수정
+     * 수정 (Update)
      */
     async update(id, data) {
-        if (Array.isArray(data)) {
-            console.warn('[LaneRepository.update] Data received is an Array. Please send an Object.');
-            if (data.length > 0 && typeof data[0] === 'object') {
-                data = data[0];
-            } else {
-                return null;
-            }
-        }
-
-        const keys = Object.keys(data);
-        if (keys.length === 0) return null;
-
-        const setClauses = [];
-        const values = [id];
-        let valIndex = 2;
-
-        keys.forEach(key => {
-            const dbCol = humps.decamelize(key);
-
-            // 유효하지 않은 컬럼명 무시
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) {
-                console.warn(`[LaneRepository.update] Skipped invalid column key: ${key} -> ${dbCol}`);
-                return;
-            }
-
-            setClauses.push(`${dbCol} = $${valIndex}`);
-            values.push(data[key]);
-            valIndex++;
-        });
-
-        if (setClauses.length === 0) {
-            console.warn('[LaneRepository.update] No valid fields to update. Returning null.');
-            return null;
-        }
-
-        const query = `
-            UPDATE pf_lanes 
-            SET ${setClauses.join(', ')}, updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-        `;
+        // 1. 필요한 필드만 추출 (객체 분해 할당 사용)
+        const { inIntegratedGate, outIntegratedGate, ...laneData } = data;
         
+        const keys = Object.keys(laneData);
+        if (keys.length === 0 && !inIntegratedGate && !outIntegratedGate) return null;
+
+        const client = await pool.connect(); // 안전한 트랜잭션을 위해 클라이언트 직접 사용 권장
+
         try {
-            const { rows } = await pool.query(query, values);
+            await client.query('BEGIN');
 
-            if (rows.length === 0) {
-                const notFoundError = new Error('수정할 데이터를 찾을 수 없습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
+            let updatedLane;
+            if (keys.length > 0) {
+                const setClauses = keys.map((key, i) => `${humps.decamelize(key)} = $${i + 2}`);
+                const values = [id, ...Object.values(laneData)];
+                
+                const query = `
+                    UPDATE pf_lanes 
+                    SET ${setClauses.join(', ')}, updated_at = NOW()
+                    WHERE id = $1
+                    RETURNING *
+                `;
+                const { rows } = await client.query(query, values);
+                updatedLane = rows[0];
+            } else {
+                // 차선 정보 수정 없이 장치 연결만 변경할 경우
+                const { rows } = await client.query('SELECT * FROM pf_lanes WHERE id = $1', [id]);
+                updatedLane = rows[0];
             }
 
-            return humps.camelizeKeys(rows[0]);
+            if (!updatedLane) {
+                throw new Error('해당 데이터를 찾을 수 없습니다.');
+            }
+
+            // 2. 장치 연결 업데이트 로직
+            // 기존에 이 차선(id)을 참조하던 모든 장치 초기화
+            await client.query('UPDATE pf_devices SET lane_id = NULL WHERE lane_id = $1', [id]);
+
+            const deviceIds = [];
+            if (inIntegratedGate?.id) deviceIds.push(inIntegratedGate.id);
+            if (outIntegratedGate?.id) deviceIds.push(outIntegratedGate.id);
+
+            if (deviceIds.length > 0) {
+                await client.query(
+                    'UPDATE pf_devices SET lane_id = $1 WHERE id = ANY($2)',
+                    [id, deviceIds]
+                );
+            }
+
+            await client.query('COMMIT');
+            return humps.camelizeKeys(updatedLane);
+
         } catch (error) {
-            if (error.code === '23505') {
-                const conflictError = new Error('이미 존재하는 데이터입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            if (error.code === '23503') {
-                const notFoundError = new Error('참조하는 데이터가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
+            await client.query('ROLLBACK'); // 에러 시 반드시 롤백
+            
+            // 에러 상태 코드 처리
+            if (error.code === '23505') error.status = 409;
+            if (error.code === '23503') error.status = 404;
+            
             throw error;
+        } finally {
+            client.release(); // 커넥션 반환
         }
     }
 

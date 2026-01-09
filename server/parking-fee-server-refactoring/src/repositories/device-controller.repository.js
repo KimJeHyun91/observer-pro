@@ -4,12 +4,12 @@ const humps = require('humps');
 /**
  * Device Controller Repository
  * - pf_device_controllers 테이블 CRUD
- * - 하위 Devices 정보 요약 포함 (JSON Aggregation)
+ * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
  */
 class DeviceControllerRepository {
     
     /**
-     * 장치 제어기 생성
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
@@ -21,10 +21,9 @@ class DeviceControllerRepository {
                 ip_address, 
                 port, 
                 status, 
-                config, 
-                is_active
+                config
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
         `;
         
@@ -36,8 +35,7 @@ class DeviceControllerRepository {
             data.ipAddress || null, 
             data.port || 80, 
             'OFFLINE', // 초기 상태
-            data.config || {}, 
-            true // is_active
+            data.config || {}
         ];
 
         try {
@@ -60,36 +58,20 @@ class DeviceControllerRepository {
 
     /**
      * 다목적 목록 조회 (Find All)
-     * - 기본 컬럼 및 날짜 범위 검색
-     * - IP 주소 텍스트 검색 지원
-     * - 조회 결과에 해당 Controller에 연결된 Devices 요약 정보 포함
+     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
+     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
+     * - 정렬 및 페이징 적용
      */
     async findAll(filters, sortOptions, limit, offset) {
-        // DeviceControllers + Devices(요약) 조인
-        let query = `
-            SELECT dc.*, 
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', d.id,
-                               'name', d.name,
-                               'type', d.type,
-                               'status', d.status,
-                               'isActive', d.is_active
-                           ) ORDER BY d.name ASC
-                       ) FILTER (WHERE d.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_devices
-            FROM pf_device_controllers dc
-            LEFT JOIN pf_devices d ON dc.id = d.device_controller_id
-        `;
+
+        let query = `SELECT dc.* FROM pf_device_controllers dc`;
 
         const whereClauses = [];
         const values = [];
         let paramIndex = 1;
 
         const textColumns = ['name', 'description', 'code', 'status'];
-        const exactColumns = ['id', 'port', 'is_active'];
+        const exactColumns = ['id', 'port'];
 
         Object.keys(filters).forEach(key => {
             const value = filters[key];
@@ -147,8 +129,6 @@ class DeviceControllerRepository {
             query += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
-        query += ` GROUP BY dc.id`;
-
         // 정렬 적용
         let sortBy = sortOptions.sortBy || 'createdAt';
         const dbSortBy = humps.decamelize(sortBy);
@@ -186,7 +166,8 @@ class DeviceControllerRepository {
     }
 
     /**
-     * 단일 조회 (상세)
+     * 단일 조회 (Find Detail)
+     * - Devices 목록을 포함하여 반환
      */
     async findById(id) {
         const query = `
@@ -197,8 +178,7 @@ class DeviceControllerRepository {
                                'id', d.id,
                                'name', d.name,
                                'type', d.type,
-                               'status', d.status,
-                               'isActive', d.is_active
+                               'status', d.status
                            ) ORDER BY d.name ASC
                        ) FILTER (WHERE d.id IS NOT NULL), 
                        '[]'
@@ -221,7 +201,7 @@ class DeviceControllerRepository {
     }
 
     /**
-     * Device Controller 수정
+     * 수정 (Update)
      */
     async update(id, data) {
         if (Array.isArray(data)) {
@@ -292,20 +272,13 @@ class DeviceControllerRepository {
     }
 
     /**
-     * Device Controller 삭제 (Hard/Soft)
+     * 삭제 (Delete)
      */
     async delete(id, isHardDelete) {
         let query;
         if (isHardDelete) {
             query = `DELETE FROM pf_device_controllers WHERE id = $1 RETURNING id`;
-        } else {
-            query = `
-                UPDATE pf_device_controllers 
-                SET is_active = false, updated_at = NOW() 
-                WHERE id = $1 
-                RETURNING id
-            `;
-        }
+        } 
         
         const { rows } = await pool.query(query, [id]);
         

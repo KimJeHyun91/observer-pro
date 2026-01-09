@@ -2,8 +2,6 @@ const { body, query, param } = require('express-validator');
 
 /**
  * 차선 생성 유효성 검사
- * - 필수: zoneId, name
- * - 선택: type('IN', 'OUT', 'BOTH'), description, code 등
  */
 exports.createLane = [
     body('zoneId').notEmpty().withMessage('zoneId는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),

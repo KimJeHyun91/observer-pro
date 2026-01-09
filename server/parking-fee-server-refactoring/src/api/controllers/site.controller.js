@@ -3,7 +3,7 @@ const siteService = new SiteService();
 
 /**
  * Site Controller
- * - 주차장 사이트 관련 HTTP 요청을 처리하는 컨트롤러입니다.
+ * - 사이트(Site) 관련 HTTP 요청을 처리하는 컨트롤러입니다.
  */
 class SiteController {
     /**
@@ -18,11 +18,11 @@ class SiteController {
 
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
             
-            // res.status(200).json({ status: 'ok', data: data });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -42,7 +42,7 @@ class SiteController {
 
             // 옵저버 요청에 맞춘 반환 형식
             res.status(200).json({ 
-                status: 'ok', 
+                status: 'OK', 
                 data: {
                     sites: data.sites.map(site => ({
                         id: site.id,
@@ -55,7 +55,7 @@ class SiteController {
                 }
             });
 
-            // res.status(200).json({ status: 'ok', data: data });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -71,7 +71,7 @@ class SiteController {
         try {
             const { id } = req.params;
             const data = await siteService.findDetail(id);
-            res.status(200).json({ status: 'ok', data: data });
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -90,11 +90,11 @@ class SiteController {
 
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(200).json({ status: 'ok', data: updatedSite });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -114,15 +114,15 @@ class SiteController {
 
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
             // res.status(200).json({ 
-            //     status: 'ok', 
-            //     message: 'site가 성공적으로 삭제되었습니다.',
+            //     status: 'OK', 
+            //     message: '성공적으로 삭제되었습니다.',
             //     data: {
-            //         id: id,
+            //         id: data.id
             //     }
             // });
         } catch (error) {
@@ -178,8 +178,7 @@ class SiteController {
             };
             res.status(200).json(customResponse);
 
-
-            // res.status(200).json({ status: 'ok', data: data });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }

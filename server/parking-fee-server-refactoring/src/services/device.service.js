@@ -89,11 +89,9 @@ class DeviceService {
     /**
      * 삭제 (Delete)
      * @param {string} id - UUID
-     * @param {boolean} isHardDelete - 완전 삭제 여부
      */
-    async delete(id, isHardDelete = false) {
-        await this.findDetail(id);
-        return await this.repository.delete(id, isHardDelete);
+    async delete(id) {
+        return await this.repository.delete(id);
     }
 }
 

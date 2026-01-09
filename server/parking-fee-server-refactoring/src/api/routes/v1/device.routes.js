@@ -36,8 +36,7 @@ router.patch('/:id', validator.updateDevice, validate, controller.update);
 
 /**
  * @route   DELETE /api/v1/devices/:id
- * @desc    장비(Device) 삭제 (Soft/Hard Delete)
- * - deleteMethod 파라미터('SOFT' | 'HARD')에 따라 동작
+ * @desc    장비(Device) 삭제 (Delete)
  * @access  Admin
  */
 router.delete('/:id', validator.deleteDevice, validate, controller.delete);

@@ -3,7 +3,6 @@ const SiteRepository = require('../repositories/site.repository');
 /**
  * Site Service
  * - 주차장 사이트 관련 비즈니스 로직을 수행합니다.
- * - Repository를 호출하여 데이터베이스 작업을 처리합니다.
  */
 class SiteService {
     constructor() {
@@ -44,10 +43,8 @@ class SiteService {
             sortOrder: params.sortOrder || 'DESC'
         };
 
-        // Repository 조회
         const { rows, count } = await this.siteRepository.findAll(filters, sortOptions, limit, offset);
 
-        // 결과 포맷팅 (데이터 + 메타데이터)
         return {
             sites: rows,
             meta: {
@@ -65,9 +62,6 @@ class SiteService {
      */
     async findDetail(id) {
         const site = await this.siteRepository.findById(id);
-        if (!site) {
-            throw new Error('Site not found');
-        }
         return site;
     }
 

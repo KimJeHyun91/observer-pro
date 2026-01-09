@@ -234,7 +234,7 @@ async function initParkingFeeDbSchema() {
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
                 site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
 
-                type TEXT NOT NULL CHECK (type IN ('FEE', 'DISCOUNT', 'MEMBER', 'BLACKLIST', 'HOLIDAY')),   -- 정책 유형
+                type TEXT NOT NULL CHECK (type IN ('FEE', 'DISCOUNT', 'MEMBERSHIP', 'BLACKLIST', 'HOLIDAY')),   -- 정책 유형
 
                 name TEXT NOT NULL, -- 정책 이름
                 description TEXT,   -- 정책 설명
@@ -350,7 +350,7 @@ async function initParkingFeeDbSchema() {
         await client.query(`
             CREATE TABLE IF NOT EXISTS pf_blacklists (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-                site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
+                site_id UUID NOT NULL REFERENCES pf_sites(id) ON DELETE CASCADE,
 
                 car_number TEXT NOT NULL,   -- 차량 번호
                 reason TEXT,                -- 제한 사유

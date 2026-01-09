@@ -2,8 +2,6 @@ const { body, query, param } = require('express-validator');
 
 /**
  * 장비 제어기 생성 유효성 검사
- * - 필수: siteId, ipAddress
- * - 선택: name, description, code, port, config 등
  */
 exports.createDeviceController = [    
     body('type').optional().isString().withMessage('type은 SERVER, EMBEDDED, MIDDELWARE 이어야 합니다.'),
@@ -52,7 +50,6 @@ exports.getDeviceController = [
  */
 exports.deleteDeviceController = [
     param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('method').optional().isIn(['SOFT', 'HARD']).withMessage("method는 'SOFT' 또는 'HARD'여야 합니다.")
 ];
 
 /**
@@ -73,12 +70,12 @@ exports.getDeviceControllers = [
     
     // 정렬
     query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().isIn(['ASC', 'DESC', 'asc', 'desc']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
+    query('sortOrder').optional().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
     
     // 검색 조건 (모든 컬럼)
     query('siteId').optional().isUUID().withMessage('유효한 UUID가 아닙니다.'),
 
-    query('type').optional().isIn(['SERVER', 'EMBEDDED', 'MIDDLEWARE']).withMessage('type은 SERVER, EMBEDDED, MIDDLEWARE 중 하나여야 합니다.'),
+    query('type').optional().toUpperCase().isIn(['SERVER', 'EMBEDDED', 'MIDDLEWARE']).withMessage('type은 SERVER, EMBEDDED, MIDDLEWARE 중 하나여야 합니다.'),
 
     query('name').optional().isString().withMessage('name은 문자열이어야합니다.'),
     query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
@@ -88,7 +85,6 @@ exports.getDeviceControllers = [
     query('port').optional().isInt().withMessage('port는 문자열이어야합니다.'),
     query('status').optional().isString().withMessage('status는 문자열이어야합니다.'),
 
-    query('isActive').optional().isBoolean().withMessage('isActive는 true 또는 false이어야 합니다.'),
     query('createdAtStart')
         .optional()
         .isISO8601()

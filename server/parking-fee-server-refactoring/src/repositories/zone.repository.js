@@ -4,12 +4,12 @@ const humps = require('humps');
 /**
  * Zone Repository
  * - pf_zones 테이블에 대한 CRUD
- * - Lanes 테이블과의 연관 관계 검색 지원
+ * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
  */
 class ZoneRepository {
 
     /**
-     * 생성
+     * 생성 (Create)
      */
     async create(data) {
         const query = `
@@ -50,7 +50,9 @@ class ZoneRepository {
 
     /**
      * 다목적 목록 조회 (Find All)
-     * - Zone 기본 컬럼 검색
+     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
+     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
+     * - 정렬 및 페이징 적용
      */
     async findAll(filters, sortOptions, limit, offset) {
 
@@ -155,7 +157,7 @@ class ZoneRepository {
     }
 
     /**
-     * 단일 조회 (상세)
+     * 단일 조회 (Find Detail)
      * - Lanes 목록을 포함하여 반환
      */
     async findById(id) {
@@ -189,7 +191,7 @@ class ZoneRepository {
     }
 
     /**
-     * 수정
+     * 수정 (Update)
      */
     async update(id, data) {
         if (Array.isArray(data)) {

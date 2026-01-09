@@ -18,11 +18,11 @@ class ZoneController {
 
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { zonesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(200).json({ status: 'ok', data: zone });
+            // res.status(200).json({ status: 'OK', data: zone });
         } catch (error) {
             next(error);
         }
@@ -39,7 +39,6 @@ class ZoneController {
         try {
             const params = req.query;
             const data = await zoneService.findAll(params);
-
 
             // 옵저버 요청에 맞춘 반환 형식
             const zonesOnly = data.zones.map(zone => ({
@@ -63,7 +62,7 @@ class ZoneController {
             };
             res.status(200).json(response);
 
-            // res.status(200).json({ status: 'ok', data: data });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -79,7 +78,7 @@ class ZoneController {
         try {
             const { id } = req.params;
             const data = await zoneService.findDetail(id);
-            res.status(200).json({ status: 'ok', data: data });
+            res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -98,11 +97,11 @@ class ZoneController {
 
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { zonesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
-            // res.status(200).json({ status: 'ok', data: data });
+            // res.status(200).json({ status: 'OK', data: data });
         } catch (error) {
             next(error);
         }
@@ -122,15 +121,15 @@ class ZoneController {
             
             // 옵저버 요청에 맞춘 반환 형식
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllerList: { 'add': 1 }});
+                global.websocket.emit("pf_parkings-update", { zonesCount: { 'add': 1 }});
             }
-            res.status(200).json({ status: 'ok' });
+            res.status(200).json({ status: 'OK' });
 
             // res.status(200).json({ 
-            //     status: 'ok', 
-            //     message: 'site가 성공적으로 삭제되었습니다.',
+            //     status: 'OK', 
+            //     message: '성공적으로 삭제되었습니다.',
             //     data: {
-            //         id: id
+            //         id: data.id
             //     }
             // });
         } catch (error) {

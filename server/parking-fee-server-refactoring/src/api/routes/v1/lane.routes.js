@@ -9,7 +9,6 @@ const errorHandler = require('../../middlewares/error-handler');
  * @route   GET /api/v1/lanes
  * @desc    차선(Lane) 목록 조회
  * - 모든 컬럼 검색, 정렬, 페이지네이션 지원
- * - 각 차선별 장비(Device) 요약 정보 포함
  * @access  Public (또는 Protected)
  */
 router.get('/', laneValidator.getLanes, validate, laneController.findAll);
@@ -38,8 +37,7 @@ router.patch('/:id', laneValidator.updateLane, validate, laneController.update);
 
 /**
  * @route   DELETE /api/v1/lanes/:id
- * @desc    차선(Lane) 삭제 (Soft/Hard Delete)
- * - deleteMethod 파라미터('SOFT' | 'HARD')에 따라 동작
+ * @desc    차선(Lane) 삭제 (Delete)
  * @access  Admin
  */
 router.delete('/:id', laneValidator.deleteLane, validate, laneController.delete);
