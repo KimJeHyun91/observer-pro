@@ -15,6 +15,7 @@ module.exports = {
         name: '표준 시간제 요금',
         description: '회차 10분, 기본 30분 1000원, 10분당 500원, 일 최대 2만원',
         code: 'FEE_STD_001',
+        isSystem: true,
         config: {
           baseTimeMinutes: 30,
           baseFee: 1000,
@@ -22,36 +23,6 @@ module.exports = {
           unitFee: 500,
           graceTimeMinutes: 10,
           dailyMaxFee: 20000
-        }
-      },
-      {
-        siteId: siteId,
-        type: 'FEE',
-        name: '일 최대 요금 전용',
-        description: '기본 요금 없이 입차 즉시 일 최대 요금 부과 (선불권 등)',
-        code: 'FEE_DAILY_001',
-        config: {
-          baseTimeMinutes: 0,
-          baseFee: 0,
-          unitTimeMinutes: 60,
-          unitFee: 15000,
-          graceTimeMinutes: 20,
-          dailyMaxFee: 15000
-        }
-      },
-      {
-        siteId: siteId,
-        type: 'FEE',
-        name: '무료 요금 (0원)',
-        description: '요금 0원 적용 (관리자/공무차량 등)',
-        code: 'FEE_FREE_001',
-        config: {
-          baseTimeMinutes: 0,
-          baseFee: 0,
-          unitTimeMinutes: 0,
-          unitFee: 0,
-          graceTimeMinutes: 0,
-          dailyMaxFee: 0
         }
       },
 

@@ -414,8 +414,11 @@ async function initParkingFeeDbSchema() {
                 entry_lane_id UUID,     -- 입차 차선 ID
                 entry_lane_name TEXT,   -- 입차 차선 이름
                 entry_lane_code TEXT,   -- 입차 차선 코드
-                entry_time TIMESTAMPTZ, -- 입차 시각     
-                entry_image_url TEXT,   -- 입차 이미지 URL   
+
+                entry_time TIMESTAMPTZ DEFAULT NOW(),   -- 입차 시각     
+                entry_image_url TEXT,                   -- 입차 이미지 URL   
+
+                entry_source TEXT DEFAULT 'SYSTEM', -- 입차 출처('SYSTEM'(LPR, 키오스크 등 자동/시스템 보정), 'ADMIN'(관리자 수동/강제 입차))
         
                 pre_settled_at TIMESTAMPTZ, -- 사전 정산 시각 (유예 시간 계산 및 추가 과금 판단용)
         
@@ -425,8 +428,11 @@ async function initParkingFeeDbSchema() {
                 exit_lane_id UUID,      -- 출차 차선 ID
                 exit_lane_name TEXT,    -- 출차 차선 이름
                 exit_lane_code TEXT,    -- 출차 차선 코드
+
                 exit_time TIMESTAMPTZ,  -- 출차 시각     
                 exit_image_url TEXT,    -- 출차 이미지 URL   
+
+                exit_source TEXT DEFAULT 'SYSTEM', -- 출차 출처('SYSTEM'(LPR, 키오스크 등 자동/시스템 보정), 'ADMIN'(관리자 수동/강제 입차))
         
                 car_number TEXT NOT NULL,           -- 차량 번호 (미인식 시 'UNKNOWN' 등으로 저장)
                 vehicle_type TEXT DEFAULT 'NORMAL', -- 차량 유형 (NORMAL, MEMBER, COMPACT, ELECTRIC)

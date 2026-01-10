@@ -5,27 +5,23 @@ const { body, param, query } = require('express-validator');
  * - CRU(Create, Read, Update) 구조에 맞춘 통합 검증 로직
  */
 
-// 1. 생성 (Create) - 사실상 '입차(Entry)' 시점
+// 1. 생성 (Create) - 입차(Entry) 시점
 exports.validateCreate = [
     // [필수] 사이트 및 차량 정보
     body('siteId')
         .notEmpty().withMessage('siteId는 필수입니다.')
         .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
 
-    body('siteName')
-        .optional()
-        .isString()
-        .withMessage('사이트 이름(siteName)은 문자열이어야 합니다.'),
-
     body('carNumber')
         .notEmpty().withMessage('차량 번호(carNumber)는 필수입니다.')
         .trim()
         .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
 
-    // [선택] 입차 관련 정보 (게이트, 시간, 차량유형)
+    // [선택] 입차 구역/차선 정보 (ID만 유효성 검증)
     body('entryZoneId').optional().isUUID().withMessage('entryZoneId는 UUID여야 합니다.'),
     body('entryLaneId').optional().isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
     
+    // [선택] 입차 시간 및 차량 정보
     body('entryTime')
         .optional()
         .isISO8601().withMessage('입차 시간(entryTime)은 ISO8601 형식(YYYY-MM-DDTHH:mm:ssZ)이어야 합니다.'),
@@ -36,7 +32,12 @@ exports.validateCreate = [
         .isIn(['NORMAL', 'MEMBER', 'COMPACT', 'ELECTRIC', 'DISABLED'])
         .withMessage('유효하지 않은 차량 타입입니다.'),
 
-    body('entryImageUrl').optional().isString()
+    body('entryImageUrl').optional().isString(),
+
+    // [신규] 강제 입차 여부 (관리자 중복 입차 허용 시 true)
+    body('forceEntry')
+        .optional()
+        .isBoolean().withMessage('forceEntry는 true/false boolean 값이어야 합니다.')
 ];
 
 /**

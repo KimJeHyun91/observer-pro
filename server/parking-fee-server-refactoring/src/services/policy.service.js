@@ -13,12 +13,29 @@ class PolicyService {
 
     /**
      * 생성 (Create)
-     * @param {Object} data - 생성할 데이터
+     * - FEE(요금) 정책은 사이트당 1개만 생성 가능하도록 제한
      */
     async create(data) {
         if (data.config) {
             this._validateConfigKeys(data.type, data.config);
         }
+
+        // [중복 생성 방지] 기본 요금 정책(FEE)은 사이트당 유일해야 함
+        if (data.type === 'FEE') {
+            const { count } = await this.policyRepository.findAll(
+                { siteId: data.siteId, type: 'FEE' },
+                {}, 
+                1, 
+                0   
+            );
+
+            if (count > 0) {
+                const error = new Error('해당 사이트에는 이미 기본 요금 정책(FEE)이 존재합니다. 기존 정책을 수정하세요.');
+                error.status = 409; 
+                throw error;
+            }
+        }
+
         return await this.policyRepository.create(data);
     }
 
@@ -72,8 +89,7 @@ class PolicyService {
 
     /**
      * 수정 (Update)
-     * @param {string} id - UUID
-     * @param {Object} data - 수정할 데이터
+     * - [수정] 기본 요금 정책(FEE)은 시스템 정책이어도 수정 허용
      */
     async update(id, data) {
         const policy = await this.policyRepository.findById(id);
@@ -82,7 +98,7 @@ class PolicyService {
         // [1] 시스템 정책(isSystem=true) 처리 (특수 로직)
         // =========================================================
         if (policy.isSystem) {
-            // 블랙리스트 선택(Switching) 로직
+            // A. 블랙리스트: 활성화/비활성화(Switching)만 가능
             const isSwitchingSelection = 
                 policy.type === 'BLACKLIST' && 
                 data.config && 
@@ -92,14 +108,21 @@ class PolicyService {
                 return await this.policyRepository.updateBlacklistSelection(policy.siteId, id);
             }
 
-            // 그 외 모든 수정 시도는 차단
-            const error = new Error('시스템 기본 정책은 수정할 수 없습니다. (활성화 설정만 가능)');
-            error.status = 403;
-            throw error;
+            // B. [예외 허용] 기본 요금 정책(FEE)
+            // 초기화 시 생성된 기본 요금 정책은 삭제가 불가능하므로, 내용은 수정할 수 있어야 함.
+            if (policy.type === 'FEE') {
+                // 통과 -> 아래 일반 수정 로직으로 진행
+            } 
+            else {
+                // 그 외 시스템 정책(예: 고정된 할인 정책 등)은 수정 차단
+                const error = new Error('시스템 기본 정책은 수정할 수 없습니다. (활성화 설정만 가능)');
+                error.status = 403;
+                throw error;
+            }
         }
 
         // =========================================================
-        // [2] 일반 정책(isSystem=false) 처리 (공통 유효성 검사)
+        // [2] 일반 정책(isSystem=false) 및 허용된 시스템 정책 처리
         // =========================================================
         
         // 2-1. 'isSelected'는 일반 수정 로직으로 변경 불가능 (시스템 전용 플래그)
@@ -110,7 +133,6 @@ class PolicyService {
         }
 
         // 2-2. 타입별 허용 키 검사 (Whitelist Check)
-        // 이제 BLACKLIST 타입도 여기서 검사 가능합니다 (단, isSystem: false인 경우만 도달)
         if (data.config) {
             this._validateConfigKeys(policy.type, data.config);
         }
@@ -121,7 +143,7 @@ class PolicyService {
 
     /**
      * 삭제 (Delete)
-     * @param {string} id - UUID
+     * - [수정] 기본 요금 정책(FEE)은 절대 삭제 불가 (사이트당 1개 필수 유지)
      */
     async delete(id) {
         // 1. 조회
@@ -131,6 +153,14 @@ class PolicyService {
         if (policy.isSystem) {
             const error = new Error('시스템 기본 정책은 삭제할 수 없습니다.');
             error.status = 403;
+            throw error;
+        }
+
+        // 3. [보호 로직 추가] 기본 요금 정책(FEE) 삭제 차단
+        // 사이트당 반드시 하나의 요금 정책이 있어야 주차비 계산이 가능하므로 삭제를 막음
+        if (policy.type === 'FEE') {
+            const error = new Error('기본 요금 정책(FEE)은 삭제할 수 없습니다. 내용을 수정하여 사용하세요.');
+            error.status = 403; // Forbidden
             throw error;
         }
 

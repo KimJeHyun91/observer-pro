@@ -9,6 +9,8 @@ class ParkingSessionController {
     /**
      * 생성 (입차)
      * POST /api/v1/parking-sessions
+     * * [참고] 이 API는 관리자 웹(Frontend)에서 수동 입차 시에만 호출됩니다.
+     * 따라서 entrySource를 'ADMIN'으로 고정합니다.
      */
     create = async (req, res, next) => {
         try {
@@ -20,11 +22,17 @@ class ParkingSessionController {
                 throw error;
             }
 
-            const session = await this.parkingSessionService.create(req.body);
+            // 관리자 웹 전용 API이므로 entrySource를 'ADMIN'으로 강제 주입
+            const sessionData = {
+                ...req.body,
+                entrySource: 'ADMIN' 
+            };
+
+            const session = await this.parkingSessionService.create(sessionData);
 
             res.status(201).json({
                 status: 'OK',
-                message: '주차 세션이 생성되었습니다. (입차)',
+                message: '주차 세션이 생성되었습니다. (관리자 수동 입차)',
                 data: session
             });
         } catch (error) {
@@ -38,7 +46,6 @@ class ParkingSessionController {
      */
     findAll = async (req, res, next) => {
         try {
-            // express-validator의 query 유효성 검사 결과 확인
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
                 const error = new Error('Validation Error');
@@ -84,7 +91,6 @@ class ParkingSessionController {
         try {
             const { id } = req.params;
             
-            // Validation 확인
             const errors = validationResult(req);
             if (!errors.isEmpty()) {
                 const error = new Error('Validation Error');
@@ -93,6 +99,7 @@ class ParkingSessionController {
                 throw error;
             }
 
+            // 수정 요청도 관리자 웹에서 오므로 필요하다면 로그용 출처를 남길 수 있음 (Service 로직에 따름)
             const updatedSession = await this.parkingSessionService.update(id, req.body);
 
             res.status(200).json({
@@ -106,4 +113,4 @@ class ParkingSessionController {
     };
 }
 
-module.exports = new ParkingSessionController(); // 싱글톤 인스턴스 반환
+module.exports = new ParkingSessionController();
