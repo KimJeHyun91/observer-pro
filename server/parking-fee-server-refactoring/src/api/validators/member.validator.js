@@ -6,13 +6,13 @@ const { body, query, param } = require('express-validator');
 exports.createMember = [
     body('siteId').notEmpty().isUUID().withMessage('유효한 siteId(UUID)여야 합니다.'),
 
-    body('carNumber').notEmpty().withMessage('carNumber는 필수입니다.'),
+    body('carNumber').notEmpty().withMessage('carNumber는 필수입니다.').isString().withMessage('carNumber은 문자열이어야 합니다.'),
 
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    body('phone').optional().isString().withMessage('phone은 문자열이어야 합니다.'),
+    body('phone').optional().isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
     body('groupName').optional().isString().withMessage('name은 문자열이어야 합니다.'),
 
     body('note').optional().isString().withMessage('note는 문자열이어야 합니다.')
@@ -26,7 +26,7 @@ exports.updateMember = [
     
     body('siteId').optional().isUUID().withMessage('유효한 siteId(UUID)여야 합니다.'),
 
-    body('carNumber').notEmpty().withMessage('carNumber는 필수입니다.'),
+    body('carNumber').optional().isString().withMessage('carNumber은 문자열이어야 합니다.'),
 
     body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
@@ -72,7 +72,7 @@ exports.getMembers = [
     query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    query('phone').optional().isString().withMessage('phone는 문자열이어야합니다.'),
+    query('phone').optional().isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.'),
     query('groupName').optional().isString().withMessage('groupName는 문자열이어야합니다.'),
 
     query('status').optional().toUpperCase().isIn(['UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED']).withMessage("status는 'UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED' 이어야 합니다."),

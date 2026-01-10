@@ -14,6 +14,7 @@ class DeviceControllerRepository {
     async create(data) {
         const query = `
             INSERT INTO pf_device_controllers (
+                site_id,
                 name, 
                 description, 
                 code,
@@ -23,11 +24,12 @@ class DeviceControllerRepository {
                 status, 
                 config
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
         `;
         
         const values = [
+            data.siteId,
             data.name, 
             data.description || null, 
             data.code || null,
@@ -223,11 +225,8 @@ class DeviceControllerRepository {
         keys.forEach(key => {
             const dbCol = humps.decamelize(key);
 
-            // 유효하지 않은 컬럼명 무시
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) {
-                console.warn(`[DeviceControllerRepository.update] Skipped invalid column key: ${key} -> ${dbCol}`);
-                return;
-            }
+            // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
+            if (['id', 'created_at'].includes(dbCol)) return;
 
             setClauses.push(`${dbCol} = $${valIndex}`);
             values.push(data[key]);
@@ -274,11 +273,8 @@ class DeviceControllerRepository {
     /**
      * 삭제 (Delete)
      */
-    async delete(id, isHardDelete) {
-        let query;
-        if (isHardDelete) {
-            query = `DELETE FROM pf_device_controllers WHERE id = $1 RETURNING id`;
-        } 
+    async delete(id) {
+        const query = `DELETE FROM pf_device_controllers WHERE id = $1 RETURNING id`;
         
         const { rows } = await pool.query(query, [id]);
         
@@ -289,8 +285,7 @@ class DeviceControllerRepository {
         }
 
         return { 
-            deletedId: rows[0]?.id, 
-            isHardDelete 
+            deletedId: rows[0]?.id 
         };
     }
 

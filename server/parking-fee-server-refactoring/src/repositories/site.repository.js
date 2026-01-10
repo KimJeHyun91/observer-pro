@@ -8,10 +8,14 @@ const humps = require('humps');
  */
 class SiteRepository {
     
-    /**
+/**
      * 생성 (Create)
+     * @param {Object} data 
+     * @param {Object} [client] - 외부 트랜잭션 클라이언트 (Optional)
      */
-    async create(data) {
+    async create(data, client) {
+        const db = client || pool;
+
         const query = `
             INSERT INTO pf_sites (
                 name, 
@@ -50,11 +54,8 @@ class SiteRepository {
         ];
 
         try {
-
-            await pool.query('BEGIN');
-
-            const { rows } = await pool.query(query, values);
-
+            
+            const { rows } = await db.query(query, values);
             const newSiteId = rows[0].id;
 
             if (data.deviceControllerIdList && data.deviceControllerIdList.length > 0) {
@@ -63,12 +64,9 @@ class SiteRepository {
                     SET site_id = $1 
                     WHERE id = ANY($2)
                 `;
-                await pool.query(updateControllersQuery, [newSiteId, data.deviceControllerIdList]);
+                await db.query(updateControllersQuery, [newSiteId, data.deviceControllerIdList]);
             }
 
-            await pool.query('COMMIT');
-
-            // DB 결과(스네이크케이스)를 카멜케이스 객체로 변환하여 반환
             return humps.camelizeKeys(rows[0]);
         } catch (error) {
 
@@ -258,7 +256,7 @@ class SiteRepository {
                                 'id', z.id,
                                 'name', z.name,
                                 'code', z.code,
-                                'description', z.description,
+                                'description', z.description
                             ) ORDER BY z.name ASC
                         ), 
                         '[]'
@@ -267,7 +265,8 @@ class SiteRepository {
                     WHERE z.site_id = s.id
                 ) as zones,
 
-                -- 2. Device Controllers 정보 가져오기 (N:M via mapping table)
+                -- 2. Device Controllers 정보 가져오기 (1:N 관계 수정)
+                -- [수정] 매핑 테이블(pf_site_device_controllers)을 제거하고 직접 조회로 변경
                 (
                     SELECT COALESCE(
                         json_agg(
@@ -277,14 +276,13 @@ class SiteRepository {
                                 'type', dc.type,
                                 'ipAddress', dc.ip_address,
                                 'port', dc.port,
-                                'status', dc.status,
+                                'status', dc.status -- [수정] 문법 오류였던 콤마(,) 제거됨
                             ) ORDER BY dc.name ASC
                         ), 
                         '[]'
                     )
-                    FROM pf_site_device_controllers sdc
-                    JOIN pf_device_controllers dc ON dc.id = sdc.device_controller_id
-                    WHERE sdc.site_id = s.id
+                    FROM pf_device_controllers dc
+                    WHERE dc.site_id = s.id  -- [수정] site_id로 직접 연결
                 ) as device_controllers
 
             FROM pf_sites s
@@ -317,9 +315,9 @@ class SiteRepository {
         keys.forEach(key => {
             // 키를 스네이크케이스 컬럼명으로 변환
             const dbCol = humps.decamelize(key);
-            
-            // 유효하지 않은 컬럼명(숫자로 시작하거나 이상한 문자) 무시
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
+
+            // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
+            if (['id', 'created_at'].includes(dbCol)) return;
 
             let value = data[key];
 

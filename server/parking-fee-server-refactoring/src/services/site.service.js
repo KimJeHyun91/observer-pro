@@ -1,4 +1,6 @@
 const SiteRepository = require('../repositories/site.repository');
+const PolicyService = require('./policy.service');
+const { pool } = require('../../../db/postgresqlPool');
 
 /**
  * Site Service
@@ -7,14 +9,34 @@ const SiteRepository = require('../repositories/site.repository');
 class SiteService {
     constructor() {
         this.siteRepository = new SiteRepository();
+        this.policyService = new PolicyService(); 
     }
 
     /**
      * 생성 (Create)
-     * @param {Object} data - 생성할 데이터
+     * - 트랜잭션을 적용하여 사이트 생성과 정책 초기화를 묶습니다.
      */
     async create(data) {
-        return await this.siteRepository.create(data);
+        const client = await pool.connect(); // 1. 연결 획득
+
+        try {
+            await client.query('BEGIN'); // 2. 트랜잭션 시작
+
+            // 3. 사이트 생성 (client 전달)
+            const site = await this.siteRepository.create(data, client);
+
+            // 4. 정책 초기화 (client 전달)
+            await this.policyService.initializeDefaults(site.id, client);
+
+            await client.query('COMMIT'); // 5. 모두 성공 시 커밋
+            return site;
+
+        } catch (error) {
+            await client.query('ROLLBACK'); // 6. 실패 시 롤백
+            throw error;
+        } finally {
+            client.release(); // 7. 연결 반납
+        }
     }
 
     /**
@@ -26,7 +48,7 @@ class SiteService {
      */
     async findAll(params) {
         const page = parseInt(params.page) || 1;
-        const limit = parseInt(params.limit) || 10;
+        const limit = parseInt(params.limit) || 100;
         const offset = (page - 1) * limit;
 
         // 페이징, 정렬 관련 키워드를 제외한 나머지는 모두 검색 필터로 간주

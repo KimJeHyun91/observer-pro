@@ -5,6 +5,8 @@ const { body, query, param } = require('express-validator');
  */
 exports.createDeviceController = [    
     body('type').optional().isString().withMessage('type은 SERVER, EMBEDDED, MIDDELWARE 이어야 합니다.'),
+    
+    body('siteId').optional().isUUID().withMessage('유효한 siteId(UUID)여야 합니다.'),
 
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),

@@ -26,7 +26,7 @@ class LaneService {
      */
     async findAll(params) {
         const page = parseInt(params.page) || 1;
-        const limit = parseInt(params.limit) || 10;
+        const limit = parseInt(params.limit) || 100;
         const offset = (page - 1) * limit;
 
         const filters = {};

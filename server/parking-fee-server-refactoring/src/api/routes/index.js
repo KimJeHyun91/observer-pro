@@ -10,10 +10,12 @@ const laneRoutes = require('./v1/lane.routes');
 const deviceControllerRoutes = require('./v1/device-controller.routes');
 const deviceRoutes = require('./v1/device.routes');
 const memberRoutes = require('./v1/member.routes');
+const memberPaymentHistoryRoutes = require('./v1/member-payment-history.routes');
 const blacklistRoutes = require('./v1/blacklist.routes');
 const holidayRoutes = require('./v1/holiday.routes');
 const policyRoutes = require('./v1/policy.routes');
 const logRoutes = require('./v1/log.routes');
+const parkingSessionRoutes = require('./v1/parking-session.routes');
 
 // =================================================================
 // 2. PLS 장비 연동용 라우트 임포트 (Target: Root)
@@ -50,9 +52,11 @@ v1Router.use('/devices', deviceRoutes);
 
 // 2. 운영 정보 관리 (Operation)
 v1Router.use('/members', memberRoutes);
+v1Router.use('/member-payment-histories', memberPaymentHistoryRoutes);
 v1Router.use('/blacklists', blacklistRoutes);
 v1Router.use('/holidays', holidayRoutes);
 v1Router.use('/policies', policyRoutes);
+v1Router.use('/parking-sessions', parkingSessionRoutes);
 
 // 3. 로그 조회 (Monitoring & History)
 v1Router.use('/logs', logRoutes);

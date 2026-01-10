@@ -10,29 +10,17 @@ exports.createMemberPaymentHistory = [
     body('amount').notEmpty().withMessage("amount는 필수입니다.").isInt({ min: 0 }).withMessage('amount 0 이상의 정수여야 합니다.'),
 
     body('paymentMethod').notEmpty().withMessage('paymentMethod는 필수입니다.').toUpperCase().isIn(['CARD', 'CASH', 'TRANSFER']).withMessage("paymentMethod는 'CARD', 'CASH', 'TRANSFER'이어야 합니다."),
-    body('paymentStatus').notEmpty().withMessage('paymentStatus는 필수입니다.').toUpperCase().isIn(['SUCCESS', 'CANCLED', 'FAILED']).withMessage("paymentStatus는 'SUCCESS', 'CANCLED', 'FAILED'이어야 합니다."),
     
     body('note').optional().isString().withMessage('note은 문자열이어야합니다.'),
 
-    body('startDate').notEmpty().withMessage('startDate는 필수입니다.').isISO8601().withMessage('올바른 날짜 형식(YYYY-MM-DD)이어야 합니다.')    
+    body('startDate').optional().isISO8601().withMessage('올바른 날짜 형식(YYYY-MM-DD)이어야 합니다.')    
 ];
 
 /**
  * 회원 결제 기록 수정 유효성 검사
  */
 exports.updateMemberPaymentHistory = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-
-    body('membershipPolicyId').optional().isUUID().withMessage('유효한 UUID여야 합니다.'),
-
-    body('amount').optional().isInt({ min: 0 }).withMessage('amount 0 이상의 정수여야 합니다.'),
-
-    body('paymentMethod').optional().toUpperCase().isIn(['CARD', 'CASH', 'TRANSFER']).withMessage("paymentMethod는 'CARD', 'CASH', 'TRANSFER'이어야 합니다."),
-    body('paymentStatus').optional().toUpperCase().isIn(['SUCCESS', 'CANCLED', 'FAILED']).withMessage("paymentStatus는 'SUCCESS', 'CANCLED', 'FAILED'이어야 합니다."),
-    
-    body('note').optional().isString().withMessage('note은 문자열이어야합니다.'),
-
-    body('startDate').optional().isISO8601().withMessage('올바른 날짜 형식(YYYY-MM-DD)이어야 합니다.')    
+    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.')
 ];
 
 /**

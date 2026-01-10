@@ -213,11 +213,8 @@ class ZoneRepository {
         keys.forEach(key => {
             const dbCol = humps.decamelize(key);
 
-            // 유효하지 않은 컬럼명 무시
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) {
-                console.warn(`[ZoneRepository.update] Skipped invalid column key: ${key} -> ${dbCol}`);
-                return;
-            }
+            // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
+            if (['id', 'created_at'].includes(dbCol)) return;
 
             setClauses.push(`${dbCol} = $${valIndex}`);
             values.push(data[key]);

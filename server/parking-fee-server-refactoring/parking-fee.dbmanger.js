@@ -260,12 +260,14 @@ async function initParkingFeeDbSchema() {
                 -- holiday_fee_policy_id: uuid - 휴일 요금 정책 ID
                 --
                 -- 블랙 리스트 정책
-                -- blacklist_action: string - 실행 설정(BLOCK, WARN_AND_OPEN, OPEN)
+                -- blacklist_action: string - 실행 설정(BLOCK, WARN)
                 --
                 -- 회원 정책
                 -- membership_fee: integer              - 회원 요금(원)
                 -- membership_validity_days: integer    - 회원 적용 기간(일)
                 config JSONB NOT NULL,
+
+                is_system BOOLEAN DEFAULT false,    -- 시스템 정책 여부
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
@@ -288,14 +290,12 @@ async function initParkingFeeDbSchema() {
                 car_number TEXT NOT NULL,   -- 차량 번호
 
                 name TEXT,          -- 회원 이름
-                name_masked TEXT,   -- 회원 이름 마스킹
-                name_hash TEXT,     -- 회원 이름 해쉬
                 description TEXT,   -- 회원 설명
                 code TEXT,          -- 회원 코드
 
-                phone TEXT,         -- 연락처
-                phone_masked TEXT,  -- 연락처 마스킹
-                phone_hash TEXT,    -- 연락처 해쉬
+                phone_encrypted TEXT,   -- 연락처
+                phone_last_digits TEXT, -- 연락처 마스킹
+                phone_hash TEXT,        -- 연락처 해쉬
 
                 group_name TEXT,    -- 그룹
                 note TEXT,          -- 메모
@@ -309,7 +309,6 @@ async function initParkingFeeDbSchema() {
             CREATE INDEX IF NOT EXISTS members_site_id_idx ON pf_members (site_id);
             CREATE INDEX IF NOT EXISTS members_car_number_idx ON pf_members (car_number);
             CREATE INDEX IF NOT EXISTS members_phone_hash_idx ON pf_members (phone_hash);
-            CREATE INDEX IF NOT EXISTS members_name_hash_idx ON pf_members (name_hash);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_members;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_members FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -321,12 +320,20 @@ async function initParkingFeeDbSchema() {
             CREATE TABLE IF NOT EXISTS pf_member_payment_histories (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
 
-                member_id UUID NOT NULL REFERENCES pf_members(id),
-                policy_id UUID NOT NULL REFERENCES pf_policies(id),
+                car_number TEXT NOT NULL,
+
+                member_id UUID NOT NULL,
+                member_name TEXT NOT NULL,
+                member_code TEXT,
+                member_phone TEXT,
+                
+                policy_id UUID NOT NULL,
+                policy_name TEXT NOT NULL,
+                policy_code TEXT,
 
                 amount INTEGER NOT NULL,                            -- 실제 결재 금액
                 payment_method TEXT NOT NULL DEFAULT 'CASH',        -- 결제 수단(CARD, CASH, TRANSFER)
-                payment_status TEXT NOT NULL DEFAULT 'SUCCESS',     -- 결제 상태(SUCCESS, CANCELLED, FAILED)
+                payment_status TEXT NOT NULL DEFAULT 'SUCCESS',     -- 결제 상태(SUCCESS, CANCELED, FAILED)
                 note TEXT,                                          -- 메모    
 
                 start_date DATE NOT NULL,   -- 등록 시작일
@@ -448,7 +455,10 @@ async function initParkingFeeDbSchema() {
                 -- UNRECOGNIZED(번호미인식)
                 -- CANCELLED(취소/오인식무효화)
                 -- RUNAWAY(도주)
+                -- FORCE_COMPLETED(강제 출차완료: 관리자 수동 출차완료 처리 또는 출차 기록이 없고 입차 기록만 있는 차량이 재입차 했을 경우 처리를 위해) 
                 status TEXT DEFAULT 'PENDING',
+
+                note TEXT, -- 메모
         
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ

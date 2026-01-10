@@ -19,9 +19,10 @@ class PolicyRepository {
                 name,
                 description,
                 code,
-                config
+                config,
+                is_system
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
         `;
 
@@ -34,7 +35,8 @@ class PolicyRepository {
             data.name,
             data.description,
             data.code,
-            config
+            config,
+            data.isSystem || false
         ];
 
         try {
@@ -185,7 +187,7 @@ class PolicyRepository {
     }
 
     /**
-     * 수정 (Update)
+     * 수정 (Update) - JSONB Merge 적용
      */
     async update(id, data) {
         const keys = Object.keys(data);
@@ -198,17 +200,23 @@ class PolicyRepository {
         keys.forEach(key => {
             const dbCol = humps.decamelize(key);
             
-            // 유효하지 않은 컬럼명 무시
             if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
+            if (['id', 'created_at', 'site_id', 'type', 'is_system'].includes(dbCol)) return;
 
             let value = data[key];
-
-            // config 필드는 내부 키들도 스네이크케이스로 변환
+            
             if (key === 'config') {
+                // Config 필드 처리
                 value = humps.decamelizeKeys(value);
+                
+                // ★ 핵심 수정: 기존 config 값과 병합(Merge)하도록 쿼리 작성
+                // PostgreSQL의 '||' 연산자는 jsonb 데이터를 병합합니다.
+                setClauses.push(`config = config || $${valIndex}::jsonb`);
+            } else {
+                // 일반 필드 처리
+                setClauses.push(`${dbCol} = $${valIndex}`);
             }
 
-            setClauses.push(`${dbCol} = $${valIndex}`);
             values.push(value);
             valIndex++;
         });
@@ -222,25 +230,15 @@ class PolicyRepository {
             RETURNING *
         `;
 
-        try {
-            const { rows } = await pool.query(query, values);
+        const { rows } = await pool.query(query, values);
 
-            if (rows.length === 0) {
-                const notFoundError = new Error('수정할 정책을 찾을 수 없습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-
-            return humps.camelizeKeys(rows[0]);
-
-        } catch (error) {
-            if (error.code === '23505') {
-                const conflictError = new Error('이미 존재하는 정책 이름입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            throw error;
+        if (rows.length === 0) {
+            const notFoundError = new Error('수정할 정책을 찾을 수 없습니다.');
+            notFoundError.status = 404;
+            throw notFoundError;
         }
+
+        return humps.camelizeKeys(rows[0]);
     }
 
     /**
@@ -266,14 +264,16 @@ class PolicyRepository {
      * 1. 해당 site_id의 모든 정책 삭제
      * 2. 전달받은 기본 정책 목록 일괄 생성
      */
-    async resetAndInitialize(siteId, policyList) {
-        const client = await pool.connect(); // 트랜잭션을 위해 클라이언트 획득
+    async resetAndInitialize(siteId, policyList, externalClient) {
+
+        const client = externalClient || await pool.connect();
+        const shouldRelease = !externalClient;
 
         try {
-            // 1. 트랜잭션 시작
-            await client.query('BEGIN');
+            // 외부 클라이언트가 없을 때만 트랜잭션 시작
+            if (!externalClient) await client.query('BEGIN');
 
-            // 2. 기존 정책 전체 삭제
+            // 1. 기존 정책 전체 삭제
             const deleteQuery = `DELETE FROM pf_policies WHERE site_id = $1`;
             await client.query(deleteQuery, [siteId]);
 
@@ -289,23 +289,24 @@ class PolicyRepository {
                     name: data.name,
                     description: data.description,
                     code: data.code,
-                    config: humps.decamelizeKeys(data.config || {})
+                    config: humps.decamelizeKeys(data.config || {}),
+                    is_system: data.isSystem || false
                 }));
 
                 const values = [];
                 const placeholders = processedList.map((_, index) => {
-                    const offset = index * 6; 
-                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+                    const offset = index * 7; 
+                    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`;
                 });
 
                 processedList.forEach(p => {
-                    values.push(p.site_id, p.type, p.name, p.description, p.code, p.config);
+                    values.push(p.site_id, p.type, p.name, p.description, p.code, p.config, p.is_system);
                 });
 
                 // 삭제 후 생성이므로 ON CONFLICT가 필요 없음 (무조건 생성)
                 const insertQuery = `
                     INSERT INTO pf_policies (
-                        site_id, type, name, description, code, config
+                        site_id, type, name, description, code, config, is_system
                     )
                     VALUES ${placeholders.join(', ')}
                     RETURNING *
@@ -315,20 +316,65 @@ class PolicyRepository {
                 createdPolicies = rows.map(row => humps.camelizeKeys(row));
             }
 
-            // 4. 트랜잭션 커밋 (성공 확정)
-            await client.query('COMMIT');
+            // 외부 클라이언트가 없을 때만 커밋
+            if (!externalClient) await client.query('COMMIT');
 
             return createdPolicies;
 
         } catch (error) {
             // 5. 에러 발생 시 롤백 (삭제 취소, 생성 취소)
-            await client.query('ROLLBACK');
+            if (!externalClient) await client.query('ROLLBACK');
             throw error;
         } finally {
             // 6. 커넥션 반환
+            if (shouldRelease) client.release();
+        }
+    }
+
+    /**
+     * 블랙리스트 활성화 (트랜잭션 Update)
+     * - Service가 "이 정책을 선택해!"라고 할 때만 호출됩니다.
+     */
+    async updateBlacklistSelection(siteId, targetPolicyId) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. 해당 사이트의 모든 블랙리스트 비활성화
+            const resetQuery = `
+                UPDATE pf_policies
+                SET config = jsonb_set(config, '{is_selected}', 'false'::jsonb),
+                    updated_at = NOW()
+                WHERE site_id = $1 AND type = 'BLACKLIST'
+            `;
+            await client.query(resetQuery, [siteId]);
+
+            // 2. 타겟 정책 활성화
+            const activeQuery = `
+                UPDATE pf_policies
+                SET config = jsonb_set(config, '{is_selected}', 'true'::jsonb),
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING *
+            `;
+            const { rows } = await client.query(activeQuery, [targetPolicyId]);
+
+            if (rows.length === 0) {
+                const notFoundError = new Error('삭제할 정책을 찾을 수 없습니다.');
+                notFoundError.status = 404;
+                throw notFoundError;
+            }
+
+            await client.query('COMMIT');
+            return humps.camelizeKeys(rows[0]);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
             client.release();
         }
     }
+
 }
 
 module.exports = PolicyRepository;

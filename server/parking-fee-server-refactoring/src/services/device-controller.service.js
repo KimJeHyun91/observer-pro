@@ -26,7 +26,7 @@ class DeviceControllerService {
      */
     async findAll(params) {
         const page = parseInt(params.page) || 1;
-        const limit = parseInt(params.limit) || 10;
+        const limit = parseInt(params.limit) || 100;
         const offset = (page - 1) * limit;
 
         const filters = {};
@@ -80,8 +80,8 @@ class DeviceControllerService {
      * 삭제 (Delete)
      * @param {string} id - UUID
      */
-    async delete(id, isHardDelete = false) {
-        return await this.repository.delete(id, isHardDelete);
+    async delete(id) {
+        return await this.repository.delete(id);
     }
 
     /**
