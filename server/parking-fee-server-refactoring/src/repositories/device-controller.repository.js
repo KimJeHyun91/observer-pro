@@ -226,7 +226,7 @@ class DeviceControllerRepository {
             const dbCol = humps.decamelize(key);
 
             // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
-            if (['id', 'created_at'].includes(dbCol)) return;
+            if (['id', 'created_at', 'updated_at'].includes(dbCol)) return;
 
             setClauses.push(`${dbCol} = $${valIndex}`);
             values.push(data[key]);

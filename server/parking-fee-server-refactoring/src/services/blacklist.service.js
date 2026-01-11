@@ -88,8 +88,8 @@ class BlacklistService {
      * 블랙리스트 여부 확인 (입차 시 사용)
      * - siteId가 없으면 전체 블랙리스트, 있으면 해당 사이트 포함 블랙리스트 검색
      */
-    async checkBlacklist(carNum, siteId) {
-        return await this.repository.checkBlacklist(carNum, siteId);
+    async checkBlacklist(siteId, carNumber) {
+        return await this.repository.checkBlacklist(siteId, carNumber);
     }
 }
 

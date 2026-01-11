@@ -187,9 +187,12 @@ class PolicyRepository {
     }
 
     /**
-     * 수정 (Update) - JSONB Merge 적용
+     * 수정 (Update)
      */
     async update(id, data) {
+        // [보안] 업데이트 허용 컬럼 목록
+        const ALLOWED_COLUMNS = ['name', 'description', 'code', 'config', 'is_system', 'type'];
+        
         const keys = Object.keys(data);
         if (keys.length === 0) return null;
 
@@ -200,20 +203,16 @@ class PolicyRepository {
         keys.forEach(key => {
             const dbCol = humps.decamelize(key);
             
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
-            if (['id', 'created_at', 'site_id', 'type', 'is_system'].includes(dbCol)) return;
+            // 1. 화이트리스트 체크
+            if (!ALLOWED_COLUMNS.includes(dbCol)) return;
 
             let value = data[key];
             
             if (key === 'config') {
-                // Config 필드 처리
                 value = humps.decamelizeKeys(value);
-                
-                // ★ 핵심 수정: 기존 config 값과 병합(Merge)하도록 쿼리 작성
-                // PostgreSQL의 '||' 연산자는 jsonb 데이터를 병합합니다.
+                // JSONB 병합 (Top-level merge)
                 setClauses.push(`config = config || $${valIndex}::jsonb`);
             } else {
-                // 일반 필드 처리
                 setClauses.push(`${dbCol} = $${valIndex}`);
             }
 
@@ -221,7 +220,7 @@ class PolicyRepository {
             valIndex++;
         });
 
-        if (setClauses.length === 0) return null;
+        if (setClauses.length === 0) return null; // 업데이트할 유효한 필드가 없음
 
         const query = `
             UPDATE pf_policies

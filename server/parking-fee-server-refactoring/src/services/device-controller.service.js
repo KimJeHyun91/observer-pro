@@ -1,4 +1,8 @@
+const logger = require('../../../logger');
 const DeviceControllerRepository = require('../repositories/device-controller.repository');
+const AdapterFactory = require('../adapters/adapter.factory');
+const LaneRepository = require('../repositories/lane.repository');
+const DeviceService = require('./device.service');
 
 /**
  * Device Controller Service
@@ -7,6 +11,8 @@ const DeviceControllerRepository = require('../repositories/device-controller.re
 class DeviceControllerService {
     constructor() {
         this.repository = new DeviceControllerRepository();
+        this.deviceService = new DeviceService();
+        this.laneRepository = new LaneRepository();
     }
 
     /**
@@ -14,7 +20,14 @@ class DeviceControllerService {
      * @param {Object} data - 생성할 데이터
      */
     async create(data) {
-        return await this.repository.create(data);
+        const newController = await this.repository.create(data);
+        
+        // [자동 동기화] 비동기로 실행 (사용자 응답 지연 방지)
+        this.syncDevices(newController.id).catch(err => {
+            logger.error(`[Auto Sync] 생성 후 동기화 실패: ${err.message}`);
+        });
+
+        return newController;
     }
 
     /**
@@ -94,102 +107,261 @@ class DeviceControllerService {
     }
     
     // =================================================================
-    // [핵심] 장비 동기화 기능 (Sync Devices)
+    // [핵심] 장비 동기화 (Sync Devices) - Direction 추론 로직 적용
     // =================================================================
+    async syncDevices(id) {
+        const controller = await this.repository.findById(id);
+        if (!controller) throw new Error('Device Controller not found');
 
-    // /**
-    //  * 장비 제어 서비스로부터 설정을 받아와 DB 장비 목록을 동기화합니다.
-    //  * @param {string} id - DeviceController ID
-    //  */
-    // async syncDevices(id) {
-    //     // 1. 제어기 정보 조회
-    //     const controller = await this.findDetail(id);
-    //     const siteId = controller.site_id;
-    //     const vendorCode = controller.code || 'UNKNOWN'; // 예: 'PLS'
+        logger.info(`[Sync] 장비 동기화 시작: ${controller.name} (${controller.ipAddress})`);
 
-    //     // 2. 어댑터를 통해 시스템 설정 가져오기
-    //     const adapter = await AdapterFactory.getAdapter(id);
-    //     let systemConfig;
-    //     try {
-    //         systemConfig = await adapter.fetchSystemConfig();
-    //     } catch (error) {
-    //         logger.error(`[Sync] Failed to fetch config from Controller (${controller.name}): ${error.message}`);
-    //         throw new Error('장비 제어 서비스 통신 실패: 설정을 가져올 수 없습니다.');
-    //     }
+        try {
+            const adapter = await AdapterFactory.getAdapter(id);
+            const responseData = await adapter.getSystemConfig();
+            
+            // 1. 데이터 구조 정규화
+            const config = responseData.docs || responseData;
 
-    //     // 3. 동기화 실행
-    //     logger.info(`[Sync] Starting sync for Controller: ${controller.name} (${vendorCode})...`);
-        
-    //     // PLS 포맷 기준 (다른 벤더 추가 시 매핑 로직 확장 필요)
-    //     const result = {
-    //         lpr: await this._syncDeviceList(siteId, id, systemConfig.lpr_list, 'LPR', vendorCode),
-    //         barrier: await this._syncDeviceList(siteId, id, systemConfig.barrier_list, 'BARRIER', vendorCode),
-    //         led: await this._syncDeviceList(siteId, id, systemConfig.led_list, 'LED', vendorCode),
-    //         pt: await this._syncDeviceList(siteId, id, systemConfig.pt_list, 'KIOSK', vendorCode)
-    //     };
+            // 2. 데이터 추출
+            const lprData = [ ...(config.lprs_list || []), ...(config.camera_list || []) ];
+            const barrierData = config.iotb_list || [];
+            const ledData = config.ledd_list || [];
+            const exitKioskData = config.pt_list || [];
+            const preKioskData = config.pre_pt_list || [];
 
-    //     // 4. 제어기 상태 업데이트 (ONLINE)
-    //     await this.repository.update(id, { status: 'ONLINE', config: systemConfig });
+            // 3. [Step 1] 부모 장비(INTEGRATED_GATE) 생성
+            const siteId = controller.siteId;
+            const laneMap = await this._getLaneMap(siteId);
+            const parentDeviceMap = new Map();
+            let syncCount = 0;
 
-    //     logger.info(`[Sync] Completed. Result: ${JSON.stringify(result)}`);
-    //     return result;
-    // }
+            // 3-1. IoT Board 기준 생성
+            for (const item of barrierData) {
+                const location = item.location || 'UNKNOWN';
+                const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+                
+                // [방향 추론 적용]
+                const direction = this._getDirection(item, location);
 
-    // /**
-    //  * [내부] 장비 리스트 동기화 처리
-    //  */
-    // async _syncDeviceList(siteId, controllerId, deviceList, type, vendorName) {
-    //     if (!deviceList || !Array.isArray(deviceList) || deviceList.length === 0) {
-    //         return 0;
-    //     }
+                const parent = await this._upsertDevice({
+                    siteId,
+                    deviceControllerId: id,
+                    laneId: laneMap.get(location),
+                    type: 'INTEGRATED_GATE',
+                    name: `${location}_INTEGRATED_${item.index ?? 0}`,
+                    description: item.description || `통합 제어 장비 (${location})`,
+                    location: location,
+                    ipAddress: validIp,
+                    port: item.port,
+                    status: 'ONLINE',
+                    direction: direction
+                });
+                if (parent) parentDeviceMap.set(location, parent.id);
+            }
 
-    //     let count = 0;
-        
-    //     // 해당 사이트의 모든 차선 조회 (location 이름 매칭용)
-    //     const allLanes = await this.laneRepository.findAll({ site_id: siteId }, {}, 100, 0); // 임시: 전체 조회 로직 필요
-    //     const lanesMap = new Map();
-    //     if (allLanes && allLanes.rows) {
-    //         allLanes.rows.forEach(lane => lanesMap.set(lane.name, lane.id));
-    //     }
+            // 3-2. 가상 부모 생성 (IoT 없는 경우)
+            const allDevices = [...lprData, ...barrierData, ...ledData, ...exitKioskData, ...preKioskData];
+            const uniqueLocations = [...new Set(allDevices.map(d => d.location).filter(Boolean))];
 
-    //     for (const item of deviceList) {
-    //         // location(예: "입차1")을 이용해 lane_id 매핑
-    //         const laneName = item.location;
-    //         const laneId = lanesMap.get(laneName) || null;
+            for (const locName of uniqueLocations) {
+                if (!parentDeviceMap.has(locName)) {
+                    // 가상 장비도 이름으로 방향 추론
+                    const direction = this._getDirection({}, locName);
 
-    //         if (!laneId) {
-    //             logger.warn(`[Sync] Lane not found for location: ${laneName}. Device will be created without lane_id.`);
-    //         }
+                    const parent = await this._upsertDevice({
+                        siteId,
+                        deviceControllerId: id,
+                        laneId: laneMap.get(locName),
+                        type: 'INTEGRATED_GATE',
+                        name: `${locName}_INTEGRATED_VIRTUAL`,
+                        description: `가상 통합 장비 (${locName})`,
+                        location: locName,
+                        ipAddress: null,
+                        port: null,
+                        status: 'ONLINE',
+                        direction: direction
+                    });
+                    if (parent) parentDeviceMap.set(locName, parent.id);
+                }
+            }
 
-    //         // 장비 생성 데이터 구성
-    //         const deviceData = {
-    //             site_id: siteId,
-    //             device_controller_id: controllerId,
-    //             lane_id: laneId,
-    //             type: type,
-    //             name: `${laneName}_${type}_${item.id || item.type || count}`, // 고유 이름 생성
-    //             ip_address: item.ip,
-    //             port: item.port,
-    //             location: { name: laneName }, // 원본 위치명 저장
-    //             status: 'ONLINE',
-    //             vendor: item.type || vendorName, // 벤더 정보 활용
-    //             description: `Synced from ${vendorName} (ID: ${item.id || 'N/A'})`
-    //         };
+            // 4. [Step 2] 하위 장비 연결
+            syncCount += await this._processCameraList(siteId, id, lprData, parentDeviceMap, laneMap);
+            syncCount += await this._processSimpleList(siteId, id, ledData, 'LED', parentDeviceMap, laneMap);
+            syncCount += await this._processKioskList(siteId, id, exitKioskData, 'EXIT', parentDeviceMap, laneMap);
+            syncCount += await this._processKioskList(siteId, id, preKioskData, 'PRE', parentDeviceMap, laneMap);
 
-    //         // 기존 장비가 있는지 확인 (IP 기준으로 중복 체크하거나, name+controllerId로 체크)
-    //         // 여기서는 DeviceRepository에 'findByIp'나 'upsert'가 없으므로 create만 호출하지만,
-    //         // 실제 운영에서는 중복 방지 로직(Upsert)이 필수입니다.
-    //         // 임시로 create 호출 (실제 구현 시엔 upsert 로직 필요)
-    //         try {
-    //             await this.deviceRepository.create(deviceData);
-    //             count++;
-    //         } catch (error) {
-    //             logger.warn(`[Sync] Failed to create device ${deviceData.name}: ${error.message}`);
-    //             // 중복 등의 에러는 무시하고 계속 진행
-    //         }
-    //     }
-    //     return count;
-    // }
+            // 5. 완료
+            await this.repository.update(id, { status: 'ONLINE', config: {} });
+
+            logger.info(`[Sync] 동기화 완료. Parent: ${parentDeviceMap.size}개, Child: ${syncCount}개`);
+            return { success: true, count: syncCount, parentCount: parentDeviceMap.size };
+
+        } catch (error) {
+            logger.error(`[Sync] 동기화 실패: ${error.message}`);
+            await this.repository.update(id, { status: 'OFFLINE' });
+            throw error;
+        }
+    }
+
+    // =================================================================
+    // [공통 Helper] 방향(Direction) 결정 로직
+    // 1. item.direction 확인
+    // 2. 없으면 location 이름 확인 (입차/입구 -> IN, 출차/출구 -> OUT)
+    // 3. 없으면 기본값 IN
+    // =================================================================
+    _getDirection(item, location) {
+        // 1. 데이터에 명시된 값 확인 (일반 장비)
+        if (item.direction) return item.direction.toUpperCase();
+
+        // 2. IoT Board 특수 케이스 (loop1:입구, loop3:출구)
+        if (item.loop1 && item.loop1.direction) return item.loop1.direction.toUpperCase();
+        if (item.loop3 && item.loop3.direction) return item.loop3.direction.toUpperCase();
+
+        // 3. Location 이름으로 추론
+        if (location) {
+            if (location.includes('입차') || location.includes('입구')) return 'IN';
+            if (location.includes('출차') || location.includes('출구')) return 'OUT';
+        }
+
+        // 4. 추론 불가시 기본값 (필요에 따라 NULL 반환 가능)
+        return 'IN'; 
+    }
+
+    // =================================================================
+    // [Private Helper] 카메라 리스트 처리
+    // =================================================================
+    async _processCameraList(siteId, controllerId, list, parentMap, laneMap) {
+        if (!list || !Array.isArray(list)) return 0;
+        let count = 0;
+        for (const item of list) {
+            const location = item.location || 'UNKNOWN';
+            const desc = item.description || '';
+            const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+            const direction = this._getDirection(item, location); // 방향 추론
+
+            let deviceType = 'MAIN_LPR';
+            if (desc.includes('정산기') || desc.includes('사전')) deviceType = 'PINHOLE_CAMERA';
+            else if (desc.includes('보조')) deviceType = 'SUB_LPR';
+
+            const suffix = validIp.split('.').pop();
+            const deviceName = `${location}_${deviceType}_${suffix}`;
+
+            await this._upsertDevice({
+                siteId,
+                deviceControllerId: controllerId,
+                laneId: laneMap.get(location),
+                parentDeviceId: parentMap.get(location),
+                type: deviceType,
+                code: deviceType,
+                name: deviceName,
+                description: desc,
+                ipAddress: validIp,
+                port: item.port,
+                location: location,
+                direction: direction,
+                vendor: 'PLS'
+            });
+            count++;
+        }
+        return count;
+    }
+
+    // =================================================================
+    // [Private Helper] 정산기 리스트 처리
+    // =================================================================
+    async _processKioskList(siteId, controllerId, list, kioskMode, parentMap, laneMap) {
+        if (!list || !Array.isArray(list)) return 0;
+        let count = 0;
+        for (const item of list) {
+            const roleCode = kioskMode === 'PRE' ? 'PRE_KIOSK' : 'EXIT_KIOSK';
+            const location = item.location || 'UNKNOWN';
+            const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+            const direction = this._getDirection(item, location); // 방향 추론
+
+            const suffix = validIp.split('.').pop();
+            const deviceName = `${location}_${roleCode}_${suffix}`;
+
+            await this._upsertDevice({
+                siteId,
+                deviceControllerId: controllerId,
+                laneId: laneMap.get(location),
+                parentDeviceId: parentMap.get(location),
+                type: 'KIOSK',
+                code: roleCode,
+                name: deviceName,
+                description: item.description,
+                ipAddress: validIp,
+                port: item.port,
+                location: location,
+                direction: direction,
+                vendor: 'PLS'
+            });
+            count++;
+        }
+        return count;
+    }
+
+    // =================================================================
+    // [Private Helper] 일반 장비 (LED 등)
+    // =================================================================
+    async _processSimpleList(siteId, controllerId, list, type, parentMap, laneMap) {
+        if (!list || !Array.isArray(list)) return 0;
+        let count = 0;
+        for (const item of list) {
+            const location = item.location || 'UNKNOWN';
+            const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+            const direction = this._getDirection(item, location); // 방향 추론
+
+            const suffix = item.index !== undefined ? `_${item.index}` : `_${validIp.split('.').pop()}`;
+            const deviceName = `${location}_${type}${suffix}`;
+
+            await this._upsertDevice({
+                siteId,
+                deviceControllerId: controllerId,
+                laneId: laneMap.get(location),
+                parentDeviceId: parentMap.get(location),
+                type: type,
+                name: deviceName,
+                description: item.description,
+                ipAddress: validIp,
+                port: item.port,
+                location: location,
+                direction: direction,
+                vendor: 'PLS'
+            });
+            count++;
+        }
+        return count;
+    }
+
+    async _upsertDevice(data) {
+        try {
+            const existing = await this.deviceService.findAll({
+                siteId: data.siteId,
+                deviceControllerId: data.deviceControllerId,
+                name: data.name
+            });
+
+            if (existing.devices && existing.devices.length > 0) {
+                return await this.deviceService.update(existing.devices[0].id, data, true); 
+            } else {
+                return await this.deviceService.create(data);
+            }
+        } catch (error) {
+            logger.warn(`[Sync] 장비 처리 실패 (${data.name}): ${error.message}`);
+            return null;
+        }
+    }
+
+    async _getLaneMap(siteId) {
+        const lanes = await this.laneRepository.findAll({ siteId }, {}, 200, 0);
+        const map = new Map();
+        if (lanes && lanes.rows) {
+            lanes.rows.forEach(l => map.set(l.name, l.id));
+        }
+        return map;
+    }
 }
 
 module.exports = DeviceControllerService;

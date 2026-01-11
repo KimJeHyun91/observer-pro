@@ -169,7 +169,7 @@ class MemberPaymentHistoryService {
     /**
      * 수정 (Update) -> 사실상 '취소(Cancel)' 기능
      * - 클라이언트 입력값 무시 (상태값 안 받음)
-     * - 호출 시 무조건 CANCLED 상태로 변경
+     * - 호출 시 무조건 CANCELLED 상태로 변경
      */
     async update(id) {
         // 1. 기존 이력 조회
@@ -181,16 +181,16 @@ class MemberPaymentHistoryService {
         }
 
         // 2. [방어 로직] 이미 취소된 건인지 확인
-        if (history.paymentStatus === 'CANCLED') {
+        if (history.paymentStatus === 'CANCELLED') {
             const error = new Error('이미 취소된 결제 내역입니다.');
             error.status = 400;
             throw error;
         }
 
-        // 3. 업데이트 수행 (CANCLED 자동 입력)
+        // 3. 업데이트 수행 (CANCELLED 자동 입력)
         // Repository에서 status 외의 다른 필드는 변경되지 않도록 처리됨
         return await this.memberPaymentHistoryRepository.update(id, {
-            paymentStatus: 'CANCLED' // [자동 설정]
+            paymentStatus: 'CANCELLED' // [자동 설정]
         });
     }
 

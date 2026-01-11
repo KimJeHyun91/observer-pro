@@ -41,7 +41,7 @@ class DeviceRepository {
             data.connectionType || null,
             data.serialNumber || null, 
             data.firmwareVersion || null, 
-            data.location || {},
+            data.location,
             data.direction, 
             data.status || 'UNKNOWN'
         ];
@@ -83,6 +83,20 @@ class DeviceRepository {
         Object.keys(filters).forEach(key => {
             const value = filters[key];
             if (value === undefined || value === null || value === '') return;
+
+            // =========================================================
+            // [추가] isUsedByLane 필터 처리 로직
+            // =========================================================
+            if (key === 'isUsedByLane') {
+                if (value === true) {
+                    // true: 차선에 할당된 장비만 (lane_id가 있는 것)
+                    whereClauses.push(`d.lane_id IS NOT NULL`);
+                } else {
+                    // false: 차선에 할당되지 않은 장비만 (lane_id가 없는 것)
+                    whereClauses.push(`d.lane_id IS NULL`);
+                }
+                return; // 처리가 끝났으므로 루프의 다음 키로 넘어감
+            }
 
             // 1. 날짜 범위 검색
             if (key === 'createdAtStart') {

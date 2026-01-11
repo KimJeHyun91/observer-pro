@@ -11,8 +11,8 @@ exports.createDevice = [
     
     body('parentDeviceId').optional().isUUID().withMessage('유효한 parentDeviceId여야 합니다.'),
     
-    body('type').isIn(['INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP']).withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP' 중 하나여야 합니다."),
-    
+    body('type').notEmpty().withMessage("장비 타입은 필수입니다.").isIn(['INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA'])
+        .withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA' 중 하나여야 합니다."),    
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
@@ -25,7 +25,7 @@ exports.createDevice = [
     body('connectionType').optional().isString().withMessage('connectionType 문자열이어야 합니다'),
     body('serialNumber').optional().isString().withMessage('serialNumber 문자열이어야 합니다'),
     body('firmwareVersion').optional().isString().withMessage('firmwareVersion 문자열이어야 합니다'),
-    body('direction').optional().isIn(['IN, OUT, BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
+    body('direction').optional().isIn(['IN', 'OUT', 'BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
     body('location').optional().isString().withMessage('location 문자열이어야 합니다')
 ];
 
@@ -44,8 +44,8 @@ exports.updateDevice = [
     
     body('parentDeviceId').optional().isUUID().withMessage('유효한 parentDeviceId여야 합니다.'),
     
-    body('type').optional().isIn(['INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP']).withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP' 중 하나여야 합니다."),
-    
+    body('type').optional().isIn(['INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA'])
+        .withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA' 중 하나여야 합니다."),    
     body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
@@ -58,7 +58,7 @@ exports.updateDevice = [
     body('connectionType').optional().isString().withMessage('connectionType 문자열이어야 합니다'),
     body('serialNumber').optional().isString().withMessage('serialNumber 문자열이어야 합니다'),
     body('firmwareVersion').optional().isString().withMessage('firmwareVersion 문자열이어야 합니다'),
-    body('direction').optional().isIn(['IN, OUT, BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
+    body('direction').optional().isIn(['IN', 'OUT', 'BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
     body('location').optional().isString().withMessage('location 문자열이어야 합니다')
 ];
 
@@ -95,13 +95,15 @@ exports.getDevices = [
     query('zoneId').optional().isUUID().withMessage('유효한 zoneId여야 합니다.'),
     query('laneId').optional().isUUID().withMessage('유효한 laneId여야 합니다.'),
     query('deviceControllerId').optional().isUUID().withMessage('유효한 deviceControllerId가 필요합니다.'),
+
+    query('isUsedByLane').notEmpty().withMessage('isUsedByLane는 필수입니다.').isBoolean().withMessage('isUsedByLane는 true 또는 false이어야 합니다.').toBoolean(),
     
     query('parentDeviceId').optional().isUUID().withMessage('유효한 parentDeviceId여야 합니다.'),
 
     query('direction').optional().toUpperCase().isIn(['IN', 'OUT', 'BOTH']).withMessage("direction은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
 
-    query('type').optional().isIn(['INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP']).withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP' 중 하나여야 합니다."),
-
+    query('type').optional().isIn(['INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA'])
+        .withMessage("type은 'INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'LED', 'KIOSK', 'LOOP', 'PINHOLE_CAMERA' 중 하나여야 합니다."),
     query('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
     query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
     query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   

@@ -167,11 +167,11 @@ async function initParkingFeeDbSchema() {
                 config JSONB,   -- 추가 설정 (JSON)
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ,
-
-                CONSTRAINT uq_pf_device_controllers_site_name UNIQUE (site_id, name),
-                CONSTRAINT uq_pf_device_controllers_site_network UNIQUE (site_id, ip_address, port)
+                updated_at TIMESTAMPTZ
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_name_null_site ON pf_device_controllers (name) WHERE site_id IS NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_name_site ON pf_device_controllers (site_id, name) WHERE site_id IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_network_site ON pf_device_controllers (site_id, ip_address, port) WHERE site_id IS NOT NULL;
             CREATE INDEX IF NOT EXISTS device_controllers_site_id_idx ON pf_device_controllers (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_device_controllers;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_device_controllers FOR EACH ROW EXECUTE FUNCTION update_timestamp();
@@ -190,7 +190,7 @@ async function initParkingFeeDbSchema() {
 
                 parent_device_id UUID REFERENCES pf_devices(id) ON DELETE CASCADE,  -- 상위 장비 ID
                 
-                type TEXT NOT NULL CHECK (type IN ('INTEGRATED_GATE','BARRIER', 'LPR', 'LED', 'KIOSK', 'LOOP')),    -- 장비 유형
+                type TEXT NOT NULL CHECK (type IN ('INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'PINHOLE_CAMERA', 'LED', 'KIOSK', 'LOOP')), -- 장비 유형
 
                 name TEXT NOT NULL, -- 장비 이름
                 description TEXT,   -- 장비 설명
@@ -214,7 +214,7 @@ async function initParkingFeeDbSchema() {
                 updated_at TIMESTAMPTZ,
 
                 CONSTRAINT uq_pf_devices_site_name UNIQUE (site_id, name),
-                CONSTRAINT uq_pf_devices_site_network UNIQUE (site_id, ip_address, port),
+                CONSTRAINT uq_pf_devices_site_network UNIQUE (site_id, ip_address, port, name),
                 CONSTRAINT uq_pf_devices_controller_name UNIQUE (device_controller_id, name)
             );
             CREATE INDEX IF NOT EXISTS devices_site_id_idx ON pf_devices (site_id);
@@ -274,6 +274,7 @@ async function initParkingFeeDbSchema() {
 
                 CONSTRAINT uq_pf_policies_site_name UNIQUE (site_id, name)
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_pf_policies_site_fee ON pf_policies (site_id) WHERE type = 'FEE';
             CREATE INDEX IF NOT EXISTS policies_site_id_idx ON pf_policies (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_policies;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_policies FOR EACH ROW EXECUTE FUNCTION update_timestamp();
@@ -479,6 +480,26 @@ async function initParkingFeeDbSchema() {
             CREATE INDEX IF NOT EXISTS idx_sessions_site_status ON pf_parking_sessions (site_id, status);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_parking_sessions;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_parking_sessions FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+        `);
+
+        // =================================================================
+        // 12. 알림 테이블 (파티션)
+        // ================================================================= 
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS pf_alerts (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
+                site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
+                
+                type TEXT NOT NULL, -- BLACKLIST, LPR_ERROR 등
+                message TEXT NOT NULL,
+                
+                metadata JSONB, -- 차량번호, 이미지 주소 등 가변 데이터
+                is_read BOOLEAN DEFAULT FALSE, -- 관리자 확인 여부
+                
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_pf_alerts_metadata ON pf_alerts USING GIN (metadata);
+            CREATE INDEX IF NOT EXISTS idx_pf_alerts_site_created ON pf_alerts(site_id, created_at DESC);
         `);
 
         // =================================================================

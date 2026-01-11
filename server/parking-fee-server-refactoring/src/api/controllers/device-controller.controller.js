@@ -145,8 +145,23 @@ class DeviceControllerController {
         }
     }
     
+    /**
+     * 장비 수동 동기화 (Manual Sync)
+     */
+    async sync(req, res, next) {
+        try {
+            const { id } = req.params;
+            const data = await service.syncDevices(id);
 
-
+            res.status(200).json({ 
+                status: 'OK', 
+                message: '장비 동기화가 완료되었습니다.', 
+                data: data 
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
 
 }
 

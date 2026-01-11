@@ -10,7 +10,7 @@ exports.createDeviceController = [
 
     body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
+    body('code').notEmpty().withMessage('code는 필수입니다.').isString().withMessage('code는 문자열이어야합니다.'),   
 
     body('ipAddress').notEmpty().withMessage('ipAddress는 필수입니다.').isIP().withMessage('유효한 IP 주소여야 합니다.'),
     body('port').notEmpty().withMessage('port는 필수입니다.').isInt({ min: 1, max: 65535 }).withMessage('Port는 1~65535 사이의 정수여야 합니다.'),
@@ -59,6 +59,13 @@ exports.deleteDeviceController = [
  */
 exports.deleteMultipleDeviceController = [
     body('deviceControllerIdList').notEmpty().withMessage('삭제할 ID 목록이 비어있습니다.').isArray({ min: 1, max: 100 }).withMessage('ID 목록은 배열 형태여야 합니다.')
+];
+
+/**
+ * 장비 제어기 동기화 유효성 검사
+ */
+exports.syncDeviceController = [
+    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
 ];
 
 /**

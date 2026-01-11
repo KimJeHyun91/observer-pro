@@ -219,7 +219,7 @@ exports.getPolicies = [
         .toDate()
         .custom((value, { req }) => {
             // 시작일이 종료일보다 늦은지 체크
-            if (req.query.updatedAtStart && value < new Date(req.query.updatedAtStart)) {
+            if (req.query.updatedAtStart && value < new Date(req.query.updatedAtEnd)) {
                 throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
             }
             return true;

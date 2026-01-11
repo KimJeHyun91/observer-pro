@@ -49,7 +49,7 @@ exports.getMemberPaymentHistories = [
     query('amount').optional().isInt({ min: 0 }).withMessage('amount 0 이상의 정수여야 합니다.'),
 
     query('paymentMethod').optional().toUpperCase().isIn(['CARD', 'CASH', 'TRANSFER']).withMessage("paymentMethod는 'CARD', 'CASH', 'TRANSFER'이어야 합니다."),
-    query('paymentStatus').optional().toUpperCase().isIn(['SUCCESS', 'CANCLED', 'FAILED']).withMessage("paymentStatus는 'SUCCESS', 'CANCLED', 'FAILED'이어야 합니다."),
+    query('paymentStatus').optional().toUpperCase().isIn(['SUCCESS', 'CANCELLED', 'FAILED']).withMessage("paymentStatus는 'SUCCESS', 'CANCELLED', 'FAILED'이어야 합니다."),
     
     query('note').optional().isString().withMessage('note은 문자열이어야합니다.'),
 

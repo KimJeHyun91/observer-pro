@@ -49,6 +49,13 @@ router.delete('/:id', validator.deleteDeviceController, validate, controller.del
  */
 router.delete('/', validator.deleteMultipleDeviceController, validate, controller.deleteMultiple);
 
+/**
+ * @route   POST /api/v1/device-controllers/:id/sync
+ * @desc    장비 제어기(Device Controller)와 하위 장비(Device) 목록 동기화 (Sync)
+ * @access  Admin
+ */
+router.post('/:id/sync', validator.syncDeviceController, validate, controller.sync);
+
 router.use(errorHandler);
 
 module.exports = router;

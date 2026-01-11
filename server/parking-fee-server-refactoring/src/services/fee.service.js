@@ -1,141 +1,165 @@
-/**
- * Fee Service
- * - 주차 요금 계산 및 할인 적용 로직을 전담하는 도메인 서비스
- * - DB 의존성을 최소화하고, 순수 계산 로직 위주로 구현함
- */
+const logger = require('../../../logger');
+const PolicyRepository = require('../repositories/policy.repository');
+
 class FeeService {
-    
-    /**
-     * 기본 요금 계산 (FEE 정책 적용)
-     * @param {number} durationMinutes - 주차 시간 (분)
-     * @param {Object} feeConfig - 요금 정책 설정 (baseTimeMinutes, baseFee, ...)
-     * @returns {number} 계산된 요금 (원)
-     */
-    calculateFee(durationMinutes, feeConfig) {
-        if (!feeConfig || durationMinutes <= 0) return 0;
-
-        // 1. 회차 유예 시간 (Grace Time) 체크
-        // 주차 시간이 유예 시간 이내라면 요금 0원
-        if (durationMinutes <= (feeConfig.graceTimeMinutes || 0)) {
-            return 0;
-        }
-
-        // 2. 일일 최대 요금(Daily Max) 로직 적용
-        // 24시간(1440분)을 초과하는 장기 주차에 대한 처리
-        const MINUTES_IN_DAY = 1440;
-        const dailyMaxFee = feeConfig.dailyMaxFee || 0;
-
-        // 2-1. 일일 최대 요금 설정이 없는 경우 -> 단순 누적 계산
-        if (dailyMaxFee <= 0) {
-            return this._calculateCycleFee(durationMinutes, feeConfig);
-        }
-
-        // 2-2. 일일 최대 요금 설정이 있는 경우
-        const days = Math.floor(durationMinutes / MINUTES_IN_DAY);
-        const remainingMinutes = durationMinutes % MINUTES_IN_DAY;
-
-        // (1) 꽉 찬 일자(Day)에 대한 요금 = 일수 * 일일최대요금
-        const daysFee = days * dailyMaxFee;
-
-        // (2) 남은 자투리 시간(Minute)에 대한 요금 계산
-        let remainingFee = this._calculateCycleFee(remainingMinutes, feeConfig);
-
-        // 자투리 요금도 일일 최대 요금을 넘을 수 없음 (Cap 적용)
-        if (remainingFee > dailyMaxFee) {
-            remainingFee = dailyMaxFee;
-        }
-
-        return daysFee + remainingFee;
+    constructor() {
+        this.policyRepository = new PolicyRepository();
     }
 
     /**
-     * [내부 함수] 1일(24시간) 이내의 단일 주기 요금 계산
-     * @param {number} minutes - 분
-     * @param {Object} config - 설정
+     * 요금 계산 메인 메서드
+     * @param {Object} params
+     * @param {Date|string} params.entryTime - 입차 시간
+     * @param {Date|string} params.exitTime - 출차 시간 (없으면 현재)
+     * @param {string} params.vehicleType - 차량 타입 (NORMAL, MEMBER, COMPACT, ELECTRIC...)
+     * @param {string} params.siteId - 사이트 ID
      */
-    _calculateCycleFee(minutes, config) {
+    async calculate({ entryTime, exitTime, vehicleType, siteId }) {
+        const start = new Date(entryTime);
+        const end = exitTime ? new Date(exitTime) : new Date();
+
+        // 1. 주차 시간 계산 (분 단위)
+        const durationMs = Math.max(0, end.getTime() - start.getTime());
+        const durationMinutes = Math.floor(durationMs / 60000);
+
+        logger.info(`[Fee] 요금 계산 시작: ${durationMinutes}분 (Type: ${vehicleType})`);
+
+        // 2. 정책 조회 (DB 연동)
+        // FEE 타입의 정책 중 현재 사이트에 적용된 것을 가져옴
+        const policyConfig = await this._getFeePolicyConfig(siteId);
+
+        // 3. [Case A] 정기권 회원 (무료)
+        // vehicleType이 MEMBER면 요금 0원 처리
+        if (vehicleType === 'MEMBER') {
+            return { 
+                totalFee: 0, 
+                discountAmount: 0, 
+                finalFee: 0, 
+                durationMinutes, 
+                isGracePeriod: false 
+            };
+        }
+
+        // 4. [Case B] 회차 시간(Grace Time) 이내 (무료)
+        // 예: 10분 이내 회차 무료
+        if (policyConfig.graceTimeMinutes && durationMinutes <= policyConfig.graceTimeMinutes) {
+            logger.info(`[Fee] 회차 시간 이내 출차 (${durationMinutes}분 <= ${policyConfig.graceTimeMinutes}분)`);
+            return { 
+                totalFee: 0, 
+                discountAmount: 0, 
+                finalFee: 0, 
+                durationMinutes, 
+                isGracePeriod: true 
+            };
+        }
+
+        // 5. [Case C] 요금 계산 (일자별 반복 로직) 
+        // 하루(1440분) 단위로 쪼개서 계산
+        const minutesInDay = 1440;
+        const days = Math.floor(durationMinutes / minutesInDay);
+        const remainingMinutes = durationMinutes % minutesInDay;
+
+        let totalFee = 0;
+        const dailyMaxFee = policyConfig.dailyMaxFee || 0; // 일일 최대 요금 (없으면 0)
+
+        // 5-1. 꽉 채운 일수(Days)에 대한 요금
+        if (dailyMaxFee > 0) {
+            totalFee += (days * dailyMaxFee);
+        } else {
+            // 일 최대 요금이 없는 경우, 하루치(1440분) 요금을 정직하게 계산해서 곱함
+            const fullDayFee = this._calculateDailyFee(minutesInDay, policyConfig);
+            totalFee += (days * fullDayFee);
+        }
+
+        // 5-2. 남은 자투리 시간(Minutes)에 대한 요금 계산
+        let dailyRemainingFee = this._calculateDailyFee(remainingMinutes, policyConfig);
+
+        // 5-3. 자투리 시간 요금에도 일 최대 요금 캡(Cap) 적용
+        if (dailyMaxFee > 0 && dailyRemainingFee > dailyMaxFee) {
+            dailyRemainingFee = dailyMaxFee;
+        }
+
+        totalFee += dailyRemainingFee;
+
+        // 6. 경차/전기차 등 법정 감면 (Optional)
+        // 여기서는 '할인 전 총 요금'을 구하는 것이 목적이므로, 
+        // 감면 로직은 calculate 호출 후 applyDiscount 단계에서 처리하는 것이 일반적임.
+        // 하지만 "기본 요금 자체를 50% 감면" 하는 정책이라면 여기서 처리 가능.
+        // if (['COMPACT', 'ELECTRIC'].includes(vehicleType)) { ... }
+
+        // 7. 결과 반환
+        return {
+            totalFee: totalFee,
+            discountAmount: 0, // 여기서는 0, 추후 할인 적용 단계에서 계산
+            finalFee: totalFee,
+            durationMinutes: durationMinutes,
+            isGracePeriod: false
+        };
+    }
+
+    /**
+     * [Helper] 하루(24시간) 이내의 시간 요금 계산
+     * - DB 스키마의 config 필드명과 매칭
+     */
+    _calculateDailyFee(minutes, config) {
         if (minutes <= 0) return 0;
 
-        const baseTime = config.baseTimeMinutes || 0;
-        const baseFee = config.baseFee || 0;
-        const unitTime = config.unitTimeMinutes || 1; // 0으로 나누기 방지
-        const unitFee = config.unitFee || 0;
+        let fee = 0;
+        let calcMin = minutes;
 
-        // 1. 기본 시간 이내인 경우 -> 기본 요금만 부과
-        if (minutes <= baseTime) {
-            return baseFee;
+        // 1. 기본 요금 (Base Fee)
+        // 예: 최초 30분 3000원
+        if (config.baseTimeMinutes > 0) {
+            fee += (config.baseFee || 0);
+            calcMin -= config.baseTimeMinutes;
         }
 
-        // 2. 기본 시간 초과인 경우 -> 기본 요금 + 추가 요금
-        const exceededTime = minutes - baseTime;
-        
-        // 올림(Ceil) 처리: 1분이라도 넘어가면 1단위 부과 (예: 10분 단위인데 11분이면 2단위)
-        const units = Math.ceil(exceededTime / unitTime);
-        
-        return baseFee + (units * unitFee);
+        // 2. 추가 요금 (Unit Fee)
+        // 예: 이후 10분당 1000원
+        if (calcMin > 0 && config.unitTimeMinutes > 0) {
+            // 올림 처리 (1분만 초과해도 10분 요금 부과)
+            const units = Math.ceil(calcMin / config.unitTimeMinutes);
+            fee += (units * (config.unitFee || 0));
+        }
+
+        return fee;
     }
 
     /**
-     * 할인 금액 계산
-     * - 정책 타입에 따라 할인될 '금액'을 계산하여 반환
-     * - FREE_TIME(무료시간)의 경우, 요금을 0원으로 만들거나 별도 로직이 필요하므로
-     * 여기서는 '금액 할인' 위주로 처리하고 시간 할인은 별도 메서드로 제공
-     * * @param {number} currentTotalFee - 현재 총 요금
-     * @param {Object} discountConfig - 할인 정책 설정 (type, value)
-     * @returns {number} 할인될 금액 (원)
+     * [Private] 정책 조회
+     * - Repository를 통해 DB에서 'FEE' 타입 정책을 조회
      */
-    calculateDiscountAmount(currentTotalFee, discountConfig) {
-        if (!discountConfig) return 0;
-
-        const { discountType, discountValue } = discountConfig;
-        let discountAmount = 0;
-
-        switch (discountType) {
-            case 'PERCENT':
-                // 정률 할인: 전체 요금의 N% (소수점 절사)
-                discountAmount = Math.floor(currentTotalFee * (discountValue / 100));
-                break;
-
-            case 'FIXED_AMOUNT':
-                // 정액 할인: N원 할인
-                discountAmount = discountValue;
-                break;
-
-            case 'FREE_TIME':
-                // 시간 할인: 여기서는 금액으로 환산할 수 없으므로 0원 리턴
-                // (시간 할인은 calculateAdjustedDuration을 사용해야 함)
-                discountAmount = 0;
-                break;
-
-            default:
-                discountAmount = 0;
-        }
-
-        // 할인액은 전체 요금을 초과할 수 없음 (마이너스 요금 방지)
-        if (discountAmount > currentTotalFee) {
-            discountAmount = currentTotalFee;
-        }
-
-        return discountAmount;
-    }
-
-    /**
-     * 시간 할인(FREE_TIME) 적용 후 주차 시간 계산
-     * - 무료 주차 시간이 적용된 후의 '과금 대상 시간'을 반환
-     * * @param {number} originalDuration - 원래 주차 시간
-     * @param {Object} discountConfig - 할인 정책 설정
-     * @returns {number} 조정된 주차 시간 (분)
-     */
-    calculateAdjustedDuration(originalDuration, discountConfig) {
-        if (!discountConfig || discountConfig.discountType !== 'FREE_TIME') {
-            return originalDuration;
-        }
-
-        // 무료 시간(분) 차감
-        const adjusted = originalDuration - discountConfig.discountValue;
+    async _getFeePolicyConfig(siteId) {
+        // Repository에서 siteId와 type='FEE'로 조회하는 메서드 필요
+        // 여기서는 로직 예시를 위해 findOne을 가정
+        // 실제로는: const policyEntity = await this.policyRepository.findOne({ siteId, type: 'FEE' });
         
-        return adjusted < 0 ? 0 : adjusted;
+        // 캐싱(Redis or Memory)이 강력히 권장되는 구간입니다.
+        // 매번 DB를 조회하지 않도록 주의하세요.
+
+        const policies = await this.policyRepository.findAll({ 
+            siteId: siteId, 
+            type: 'FEE' 
+        }, {}, 1, 0);
+
+        if (policies.rows.length === 0) {
+            // 정책이 없으면 기본값(무료 or 에러)
+            logger.warn(`[Fee] 요금 정책 미설정 Site: ${siteId}. 기본값(0원) 적용.`);
+            return {
+                baseTimeMinutes: 0,
+                baseFee: 0,
+                unitTimeMinutes: 10,
+                unitFee: 0,
+                graceTimeMinutes: 0,
+                dailyMaxFee: 0
+            };
+        }
+
+        // config JSON 객체 반환 (DB는 SnakeCase지만 Humps에 의해 CamelCase로 변환됨을 가정)
+        // DB Config 예시: { "base_time_minutes": 30, "base_fee": 3000 ... }
+        // Repository 반환값: { baseTimeMinutes: 30, baseFee: 3000 ... }
+        return policies.rows[0].config;
     }
 }
 
-module.exports = FeeService;
+module.exports = new FeeService();

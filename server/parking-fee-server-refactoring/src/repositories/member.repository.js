@@ -136,12 +136,12 @@ class MemberRepository {
     /**
      * 차량 번호 조회 (중복 체크용)
      */
-    async findByCarNumber(siteId, carNum) {
+    async findByCarNumber(siteId, carNumber) {
         const query = `
             SELECT * FROM pf_members 
             WHERE site_id = $1 AND car_number = $2
         `;
-        const { rows } = await pool.query(query, [siteId, carNum]);
+        const { rows } = await pool.query(query, [siteId, carNumber]);
         return rows[0] ? humps.camelizeKeys(rows[0]) : null;
     }
 

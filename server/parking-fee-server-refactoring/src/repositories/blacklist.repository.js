@@ -167,26 +167,21 @@ class BlacklistRepository {
      * 블랙리스트 차량 여부 확인 (Check Logic)
      * - 특정 사이트 혹은 전역(site_id IS NULL) 블랙리스트 체크
      */
-    async checkBlacklist(carNum, siteId) {
-        let query = `
-            SELECT 1 FROM pf_blacklists 
-            WHERE car_number = $1
+    async checkBlacklist(siteId, carNumber) {
+        const query = `
+            SELECT * FROM pf_members 
+            WHERE site_id = $1 
+            AND car_number = $2 -- 여기가 car_number 여야 합니다 (id X)
+            LIMIT 1
         `;
-        const values = [carNum];
+        const values = [siteId, carNumber];
 
-        // siteId가 제공되면 해당 사이트의 블랙리스트 OR 전역 블랙리스트(site_id IS NULL) 확인
-        if (siteId) {
-            query += ` AND (site_id = $2 OR site_id IS NULL)`;
-            values.push(siteId);
-        } else {
-            // siteId가 없으면 전역 블랙리스트만 체크하거나 전체를 체크하는 정책에 따라 다르지만,
-            // 여기서는 단순히 전체에서 차량 번호 존재 여부만 확인 (필요시 로직 수정)
+        try {
+            const { rows } = await pool.query(query, values);
+            return rows[0] ? humps.camelizeKeys(rows[0]) : null;
+        } catch (error) {
+            throw error;
         }
-
-        query += ` LIMIT 1`;
-
-        const { rows } = await pool.query(query, values);
-        return rows.length > 0;
     }
 
     /**
@@ -279,6 +274,7 @@ class BlacklistRepository {
 
         return humps.camelizeKeys(rows[0]);
     }
+
 }
 
 module.exports = BlacklistRepository;

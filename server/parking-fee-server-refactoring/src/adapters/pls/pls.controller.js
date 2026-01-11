@@ -4,72 +4,130 @@ const logger = require('../../../../logger');
 class PlsController {
 
     /**
-     * 차량 감지 (Loop) 신호 수신 (단순 알림)
-     * POST /receive/vehicle_det
+     * 1. LPR(차량 번호 인식) 데이터 수신
+     * URL: POST /api/parkingFee/receive/lpr
      */
-    handleVehicleDetection = async (req, res, next) => {
+    receiveLprData = async (req, res, next) => {
         try {
-            const { loop, status, location } = req.body;
-            
-            // 1. [즉시 응답]
-            res.json({ status: 'ok', message: 'Loop data received' });
+            // [규격 준수] 장비에게 즉시 성공 응답 전송 (비동기 로직 결과 대기 안 함)
+            // 응답이 늦으면 장비에서 타임아웃 발생 가능성 있음
+            res.status(200).json({ status: 'ok', message: '' });
 
-            // 2. [비동기 처리] 관제 클라이언트에 알림 전송 등 (차단기 제어 X)
-            plsService.processVehicleDetection({ loop, status, locationName: location })
-                .catch(err => {
-                    logger.error(`[PLS Controller] 루프 처리 오류: ${err.message}`);
-                });
+            // 서비스 로직 실행
+            // (에러가 발생해도 위에서 이미 응답을 보냈으므로 장비 통신에는 영향 없음)
+            await plsService.processLprData(req.body);
 
         } catch (error) {
-            next(error);
+            logger.error(`[PLS Controller] LPR Data Error: ${error.message}`);
+            // 만약 응답을 아직 안 보냈다면 에러 응답
+            if (!res.headersSent) {
+                res.status(200).json({ status: 'ng', message: error.message });
+            }
         }
     }
 
     /**
-     * [Step 2] 차량 번호 인식 데이터 수신 (입차 판단 및 제어)
-     * POST /receive/lpr_data
+     * 2. 차단기 상태 변경 이벤트 수신
+     * URL: POST /api/parkingFee/receive/gate_state
      */
-    handleLprData = async (req, res, next) => {
+    handleGateStateEvent = async (req, res, next) => {
         try {
-            const { lp, imgurl, location, in_time } = req.body;
+            const { location, status, descript, loop_event_time } = req.body;
 
-            if (!lp) {
-                logger.warn('[PLS Controller] LPR 데이터 누락: 차량번호 없음');
-                return res.status(400).json({ status: 'ng', message: 'Missing license plate number' });
+            // [규격 준수] 즉시 응답
+            res.status(200).json({ status: 'ok', message: '' });
+
+            // 상태 업데이트 로직 호출
+            await plsService.updateGateStatus({
+                locationName: location,
+                status: status, // "up" or "down"
+                eventTime: loop_event_time
+            });
+
+        } catch (error) {
+            logger.error(`[PLS Controller] Gate Event Error: ${error.message}`);
+            if (!res.headersSent) res.json({ status: 'ng', message: error.message });
+        }
+    }
+
+    /**
+     * 3. 결제 결과 및 할인권 투입 수신
+     * URL: POST /api/parkingFee/receive/payment
+     * - 정산기에서 결제가 완료되었거나, 종이 할인권이 투입되었을 때 호출됨
+     */
+    handlePaymentResult = async (req, res, next) => {
+        try {
+            const body = req.body;
+            const cmd = body.cmd; // PARK_FEE_DONE(결제완료) or PARK_FEE_RECALC(재계산/할인권)
+
+            // [규격 준수] 즉시 응답
+            res.status(200).json({ status: 'ok', message: '' });
+
+            if (cmd === 'PARK_FEE_DONE') {
+                // [CASE A] 정상 결제 완료 (카드 등)
+                // PlsService에 processPaymentSuccess 메서드 구현 필요
+                if (plsService.processPaymentSuccess) {
+                    await plsService.processPaymentSuccess({
+                        carNumber: body.lp,
+                        paidFee: parseInt(body.paid_fee || 0),
+                        paymentType: body.paytype, // 1:IC, 2:MS, 3:RF ...
+                        approvalNo: body.approvno,
+                        approvalTime: body.paydate + body.paytime,
+                        locationName: body.location,
+                        rawAmount: body.payamount
+                    });
+                } else {
+                    logger.warn('[PLS Controller] processPaymentSuccess 메서드가 서비스에 구현되지 않았습니다.');
+                }
+
+            } else if (cmd === 'PARK_FEE_RECALC') {
+                // [CASE B] 종이 할인권 투입 -> 유효성 검증 및 재계산 요청
+                // PlsService에 processCouponInput 메서드 구현 필요
+                if (plsService.processCouponInput) {
+                    await plsService.processCouponInput({
+                        carNumber: body.lp,
+                        couponCode: body.coupon,
+                        locationName: body.location
+                    });
+                } else {
+                    logger.warn('[PLS Controller] processCouponInput 메서드가 서비스에 구현되지 않았습니다.');
+                }
             }
 
-            // 1. [즉시 응답] PLS에게 수신 확인 (ACK)
-            res.json({ status: 'ok', message: 'LPR data received' });
-
-            // 2. [비동기 처리] 입차 판단 및 차단기 제어 로직 실행
-            const lprData = {
-                carNumber: lp,
-                imageUrl: imgurl,
-                locationName: location,
-                entryTime: in_time || new Date()
-            };
-
-            plsService.processLprData(lprData)
-                .catch(err => {
-                    logger.error(`[PLS Controller] 입차 처리 오류 (${lp}): ${err.message}`);
-                });
-
         } catch (error) {
-            next(error);
+            logger.error(`[PLS Controller] Payment Handler Error: ${error.message}`);
+            if (!res.headersSent) res.json({ status: 'ng', message: error.message });
         }
     }
 
-    
-
     /**
-     * 장비 상태 변경 수신
+     * 4. 사전 정산기 차량 검색 요청
+     * URL: POST /api/parkingFee/receive/park_car_search
+     * - 키오스크에서 고객이 차량번호 4자리를 입력했을 때 호출됨
      */
-    handleDeviceStatus = async (req, res, next) => {
+    handleCarSearchRequest = async (req, res, next) => {
         try {
-            res.json({ status: 'ok' });
-            // TODO: 장비 상태 DB 업데이트
+            const { searchkey, location, ip, port } = req.body;
+
+            // [규격 준수] 즉시 응답
+            // (실제 차량 리스트는 여기서 리턴하는 게 아니라, 별도의 API(sendCarSearchResult)로 쏴줘야 함)
+            res.status(200).json({ status: 'ok', message: '' });
+
+            // 검색 및 결과 전송 로직 호출
+            if (plsService.searchCarAndReply) {
+                await plsService.searchCarAndReply({
+                    searchKey: searchkey, // 차량번호 뒷자리
+                    targetLocation: location,
+                    targetIp: ip,
+                    targetPort: port
+                });
+            } else {
+                logger.warn('[PLS Controller] searchCarAndReply 메서드가 서비스에 구현되지 않았습니다.');
+            }
+
         } catch (error) {
-            next(error);
+            logger.error(`[PLS Controller] Car Search Error: ${error.message}`);
+            if (!res.headersSent) res.json({ status: 'ng', message: error.message });
         }
     }
 }

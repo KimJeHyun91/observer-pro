@@ -1,153 +1,352 @@
 const ParkingSessionRepository = require('../repositories/parking-session.repository');
 const SiteRepository = require('../repositories/site.repository');
-const ZoneRepository = require('../repositories/zone.repository');
 const LaneRepository = require('../repositories/lane.repository');
-const PolicyRepository = require('../repositories/policy.repository'); // 모든 정책 조회용
-const FeeService = require('./fee.service'); // 오타 수정 (.serivce -> .service)
-const { pool } = require('../../../db/postgresqlPool'); 
+const PolicyRepository = require('../repositories/policy.repository');
+const MemberPaymentHistoryRepository = require('../repositories/member-payment-history.repository');
+const FeeService = require('./fee.service');
+const logger = require('../../../logger');
 
 class ParkingSessionService {
     constructor() {
-        this.parkingSessionRepository = new ParkingSessionRepository();
+        this.repository = new ParkingSessionRepository();
         this.siteRepository = new SiteRepository();
-        this.zoneRepository = new ZoneRepository();
         this.laneRepository = new LaneRepository();
-        // DiscountPolicyRepository 제거됨 -> policyRepository로 통합
         this.policyRepository = new PolicyRepository();
-        this.feeService = new FeeService();
+        this.memberHistoryRepository = new MemberPaymentHistoryRepository();
+        this.feeService = FeeService;
     }
 
-    /**
-     * 주차 세션 생성 (입차)
-     * - Transaction 적용
-     * - ID 기반 정보 자동 조회 (이름/코드 강제 덮어쓰기)
-     * - 출처(Source) 기반 이중 입차 처리 정책 적용
-     */
+    // =================================================================
+    // 1. [입차] Create Session (정기권 자동 판별 포함)
+    // =================================================================
     async create(data) {
-        const client = await pool.connect(); // Transaction 시작
-        try {
-            await client.query('BEGIN');
+        if (!data.siteId || !data.carNumber) {
+            const error = new Error('siteId와 carNumber는 필수입니다.');
+            error.status = 400;
+            throw error;
+        }
 
-            if (!data.siteId || !data.carNumber) {
-                const error = new Error('siteId와 carNumber는 필수입니다.');
-                error.status = 400;
-                throw error;
-            }
+        // 1. 메타데이터 조회 (Site Name)
+        let siteName = data.siteName;
+        let siteCode = data.siteCode;
 
-            // --- [1. 출처(Source) 정의] ---
-            // entrySource: 'SYSTEM'(기본값, LPR/키오스크), 'ADMIN'(관리자 수동)
-            let source = data.entrySource || data.source || 'SYSTEM';
-            if (source !== 'ADMIN') source = 'SYSTEM';
-            data.entrySource = source;
-
-            // --- [2. 정보 조회 및 데이터 무결성 보장] ---
-            
-            // 2-1. 사이트 정보 조회 (필수)
+        if (!siteName) {
             const site = await this.siteRepository.findById(data.siteId);
             if (!site) {
-                const error = new Error('존재하지 않는 사이트 ID입니다.');
+                const error = new Error(`존재하지 않는 사이트 ID입니다: ${data.siteId}`);
                 error.status = 404;
                 throw error;
             }
-            data.siteName = site.name; 
-            data.siteCode = site.code; 
+            siteName = site.name;
+            siteCode = site.code;
+        }
 
-            // 2-2. 입차 구역(Zone) 정보 조회
-            if (data.entryZoneId) {
-                const zone = await this.zoneRepository.findById(data.entryZoneId);
-                if (zone) {
-                    data.entryZoneName = zone.name;
-                    data.entryZoneCode = zone.code;
-                } else {
-                    console.warn(`[Warning] 유효하지 않는 Entry Zone ID: ${data.entryZoneId}`);
-                    data.entryZoneName = null;
-                    data.entryZoneCode = null;
-                }
-            } else {
-                data.entryZoneName = null;
-                data.entryZoneCode = null;
-            }
+        // 2. [핵심] 정기권(Member) 여부 자동 판별
+        // 요청에서 명시적으로 타입을 지정하지 않았거나 'NORMAL'인 경우 체크
+        let vehicleType = data.vehicleType || 'NORMAL';
 
-            // 2-3. 입차 차선(Lane) 정보 조회
-            if (data.entryLaneId) {
-                const lane = await this.laneRepository.findById(data.entryLaneId);
-                if (lane) {
-                    data.entryLaneName = lane.name;
-                    data.entryLaneCode = lane.code;
-                } else {
-                    console.warn(`[Warning] 유효하지 않는 Entry Lane ID: ${data.entryLaneId}`);
-                    data.entryLaneName = null;
-                    data.entryLaneCode = null;
-                }
-            } else {
-                data.entryLaneName = null;
-                data.entryLaneCode = null;
-            }
-
-            // --- [3. 중복 입차 체크 및 Ghost Vehicle 처리] ---
-            const activeSession = await this.parkingSessionRepository.findActiveSessionByCarNumber(data.siteId, data.carNumber, client);
+        if (vehicleType === 'NORMAL') {
+            // 유효 기간 내의 정기권이 있는지 조회
+            const activeMembership = await this.memberHistoryRepository.findValidMembership(data.carNumber);
             
-            if (activeSession) {
-                // [정책 A] 관리자(ADMIN) 수동 입력 시 -> 실수 방지를 위해 기본 차단
-                if (source === 'ADMIN' && !data.forceEntry) {
-                    const error = new Error(`이미 주차 중인 차량입니다. (차량번호: ${data.carNumber}, 입차시간: ${activeSession.entryTime})`);
-                    error.status = 409; // Conflict
-                    error.code = 'DUPLICATE_ENTRY'; 
-                    throw error;
+            if (activeMembership) {
+                vehicleType = 'MEMBER';
+                logger.info(`[Auto-Member] 정기권 차량 인식: ${data.carNumber} (${activeMembership.memberName})`);
+            }
+        }
+
+        // 3. 차선 이름 조회 (Optional)
+        let laneName = data.laneName || 'Manual Entry';
+        if (data.laneId && !data.laneName) {
+            const lane = await this.laneRepository.findById(data.laneId);
+            if (lane) laneName = lane.name;
+        }
+
+        // -----------------------------------------------------------
+        // [수정된 부분] 중복 입차(미출차 세션) 발생 시 무조건 자동 해결
+        // -----------------------------------------------------------
+        const activeSession = await this.repository.findActiveSession(data.siteId, data.carNumber);
+        
+        if (activeSession) {
+            // "입구에 차가 있다" = "기존 세션은 이미 출차했거나 오류다"
+            // 따라서 에러를 내지 않고, 기존 세션을 '강제 종료' 처리하고 넘어갑니다.
+            
+            logger.warn(`[Auto-Correction] 미출차(Ghost) 차량 재입차 감지. 기존 세션 종료 처리: ${activeSession.id} / 차량: ${data.carNumber}`);
+            
+            await this.repository.updateExit(activeSession.id, {
+                exitTime: new Date(), // 혹은 현재 시간보다 1초 전
+                status: 'FORCE_COMPLETED',
+                // 정산 금액 0원 처리 (혹은 미수금으로 남길지 정책 결정 필요. 보통 Ghost는 0원 처리)
+                totalFee: 0,
+                paidFee: 0,
+                discountFee: 0,
+                note: `[System] 재입차로 인한 자동 강제 종료 (Ghost Session)`
+            });
+
+            // ★ 중요: 여기서 return이나 throw를 하지 않아야 
+            // 아래의 '5. 세션 생성' 코드가 실행되어 새 세션이 만들어지고 차단기가 열립니다.
+        }
+
+        // 5. 세션 생성
+        return await this.repository.create({
+            siteId: data.siteId,
+            siteName: siteName,
+            siteCode: siteCode,
+            
+            zoneId: data.zoneId || null,
+            
+            entryLaneId: data.laneId || null,
+            entryLaneName: laneName,
+            
+            carNumber: data.carNumber,
+            vehicleType: vehicleType, // 결정된 타입 저장
+            
+            entryTime: data.entryTime || new Date(),
+            entryImageUrl: data.entryImageUrl || null,
+            entrySource: data.entrySource || 'ADMIN',
+            
+            status: 'PENDING',
+            note: data.note
+        });
+    }
+
+    // =================================================================
+    // 2. [출차] Process Exit (요금 정산 포함)
+    // =================================================================
+    async processExit(id, data) {
+        const session = await this.repository.findById(id);
+        if (!session) {
+            const error = new Error('주차 세션을 찾을 수 없습니다.');
+            error.status = 404;
+            throw error;
+        }
+
+        if (['COMPLETED', 'FORCE_COMPLETED', 'GHOST_EXIT'].includes(session.status)) {
+            const error = new Error('이미 종료된 세션입니다.');
+            error.status = 400;
+            throw error;
+        }
+
+        const exitTime = data.exitTime ? new Date(data.exitTime) : new Date();
+
+        // 1. 최종 요금 계산
+        const feeResult = await this.feeService.calculate({
+            entryTime: session.entryTime,
+            exitTime: exitTime,
+            vehicleType: session.vehicleType, // MEMBER라면 0원 반환
+            siteId: session.siteId
+        });
+
+        // 2. 미결제 금액 확인
+        // (할인은 applyDiscount에서 이미 discountFee에 누적되어 있다고 가정)
+        const currentTotalDiscount = session.discountFee || 0;
+        
+        // 실제 청구할 금액 = (계산된 요금 - 할인 금액) - (이미 부분 결제한 금액 등은 여기선 고려 X, 필요시 paidFee 활용)
+        // 음수가 되지 않도록 방어
+        const finalPaidAmount = Math.max(0, feeResult.totalFee - currentTotalDiscount);
+
+        // 3. 결제 여부 체크 (강제 출차가 아닐 경우)
+        if (finalPaidAmount > 0 && !data.force) {
+            const error = new Error(`미결제 금액이 있습니다: ${finalPaidAmount}원`);
+            error.code = 'PAYMENT_REQUIRED';
+            error.status = 402; // Payment Required
+            error.data = { 
+                totalFee: feeResult.totalFee,
+                discountFee: currentTotalDiscount,
+                remainingFee: finalPaidAmount 
+            };
+            throw error;
+        }
+
+        // 4. 출차 차선 정보
+        let exitLaneName = data.exitLaneName || 'Manual Exit';
+        if (data.exitLaneId && !data.exitLaneName) {
+            const lane = await this.laneRepository.findById(data.exitLaneId);
+            if (lane) exitLaneName = lane.name;
+        }
+
+        // 5. DB 업데이트 (출차 완료 처리)
+        return await this.repository.updateExit(id, {
+            exitTime: exitTime,
+            exitLaneId: data.exitLaneId || null,
+            exitLaneName: exitLaneName,
+            exitSource: data.exitSource || 'ADMIN',
+
+            // 요금 정보 확정 저장
+            totalFee: feeResult.totalFee,        // (기존) parkingFee -> (수정) totalFee
+            discountFee: currentTotalDiscount,   // (기존) discountAmount -> (수정) discountFee
+            paidFee: data.force ? 0 : finalPaidAmount, // (기존) paidAmount -> (수정) paidFee
+            duration: feeResult.durationMinutes,
+
+            status: data.force ? 'FORCE_COMPLETED' : 'COMPLETED',
+            note: data.note || (data.force ? '관리자 강제 출차' : '정상 출차')
+        });
+    }
+
+    // =================================================================
+    // 3. [할인 적용] Apply Discount (다중 정책 지원)
+    // =================================================================
+    async applyDiscount(id, data) {
+        // 1. 세션 조회
+        const session = await this.repository.findById(id);
+        if (!session) throw new Error('주차 세션을 찾을 수 없습니다.');
+
+        if (['COMPLETED', 'FORCE_COMPLETED', 'GHOST_EXIT'].includes(session.status)) {
+            throw new Error('이미 종료된 세션에는 할인을 적용할 수 없습니다.');
+        }
+
+        // 2. 현재 시점 기준 예상 요금 계산 (퍼센트 할인을 위해 기준 금액 필요)
+        const currentFeeResult = await this.feeService.calculate({
+            entryTime: session.entryTime,
+            exitTime: new Date(), // 현재 시각
+            vehicleType: session.vehicleType,
+            siteId: session.siteId
+        });
+        const estimatedTotalFee = currentFeeResult.totalFee;
+
+        // 3. 신규 할인 목록 생성
+        const newDiscounts = [];
+        let addedDiscountAmount = 0;
+
+        // A. 정책 할인 (Policy IDs)
+        if (data.policyIds && data.policyIds.length > 0) {
+            for (const policyId of data.policyIds) {
+                const policy = await this.policyRepository.findById(policyId);
+                
+                if (!policy) {
+                    logger.warn(`존재하지 않는 정책 ID 무시됨: ${policyId}`);
+                    continue;
+                }
+                
+                if (policy.siteId !== session.siteId) {
+                    throw new Error(`해당 주차장에 유효하지 않은 정책입니다: ${policy.name}`);
                 }
 
-                // [정책 B] SYSTEM(LPR) 또는 관리자 강제 입차 -> 기존 세션 자동 종료
-                const exitSource = (source === 'ADMIN') ? 'ADMIN' : 'SYSTEM';
-                
-                console.warn(`[Auto-Correction] 차량(${data.carNumber}) 재입차로 인한 기존 세션(${activeSession.id}) 자동 종료 처리. (Source: ${source})`);
-                
-                await this.parkingSessionRepository.update(activeSession.id, {
-                    status: 'FORCE_COMPLETED',
-                    exitTime: new Date(),
-                    exitSource: exitSource,
-                    note: `[재입차 자동보정] 신규 입차(${source})로 인한 기존 세션 종료`
-                }, client);
+                const discountValue = this._calculatePolicyDiscountValue(policy, estimatedTotalFee);
+
+                newDiscounts.push({
+                    type: 'POLICY',
+                    policyId: policy.id,
+                    code: policy.code,
+                    name: policy.name,
+                    discountType: policy.config.discountType,
+                    value: policy.config.discountValue,
+                    amount: discountValue,
+                    appliedAt: new Date()
+                });
+                addedDiscountAmount += discountValue;
             }
+        }
 
-            // 4. 신규 입차 생성
-            const newSession = await this.parkingSessionRepository.create(data, client);
+        // B. 수동 금액 할인 (Manual Amount)
+        if (data.amount) {
+            const manualAmount = parseInt(data.amount);
+            newDiscounts.push({
+                type: 'MANUAL',
+                policyId: null,
+                code: 'MANUAL',
+                name: data.note || '관리자 수동 할인',
+                discountType: 'FIXED_AMOUNT',
+                value: manualAmount,
+                amount: manualAmount,
+                appliedAt: new Date()
+            });
+            addedDiscountAmount += manualAmount;
+        }
 
-            await client.query('COMMIT');
-            return newSession;
+        // 4. 기존 할인과 합산 및 DB 업데이트
+        const previousDiscounts = session.appliedDiscounts || [];
+        const previousDiscountFee = session.discountFee || 0;
+        const finalDiscountFee = previousDiscountFee + addedDiscountAmount;
 
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
+        return await this.repository.update(id, {
+            discountFee: finalDiscountFee,
+            appliedDiscounts: [
+                ...previousDiscounts,
+                ...newDiscounts
+            ]
+        });
+    }
+
+    /**
+     * [Helper] 정책 설정에 따른 할인 금액 계산
+     */
+    _calculatePolicyDiscountValue(policy, currentTotalFee) {
+        const config = policy.config || {};
+        const value = parseInt(config.discountValue) || 0;
+        
+        switch (config.discountType) {
+            case 'FIXED_AMOUNT': 
+                return value;
+            case 'PERCENT': 
+                return Math.floor(currentTotalFee * (value / 100));
+            case 'FREE_TIME': 
+                // 시간 할인은 정확한 금액 계산이 복잡하므로 
+                // 여기서는 0으로 처리하고 최종 정산 시 FeeService가 처리하도록 하거나,
+                // 단순 추정치(시간 * 기본요금)를 넣을 수 있음.
+                return 0; 
+            default:
+                return 0;
         }
     }
 
+    // =================================================================
+    // 4. [정보 수정] Update Info (오타 수정 등)
+    // =================================================================
+    async updateInfo(id, data) {
+        const session = await this.repository.findById(id);
+        if (!session) throw new Error('주차 세션을 찾을 수 없습니다.');
+
+        const isCompleted = ['COMPLETED', 'FORCE_COMPLETED', 'CANCELLED', 'RUNAWAY'].includes(session.status);
+        const updateData = {};
+
+        // 메모는 언제나 수정 가능
+        if (data.note !== undefined) updateData.note = data.note;
+
+        // 핵심 정보는 진행 중에만 수정 가능
+        if (!isCompleted) {
+            if (data.carNumber) updateData.carNumber = data.carNumber;
+            if (data.vehicleType) updateData.vehicleType = data.vehicleType;
+            if (data.entryTime) updateData.entryTime = new Date(data.entryTime);
+        } else {
+            // 완료된 세션의 핵심 정보 수정 시도 차단
+            if (data.carNumber || data.vehicleType || data.entryTime) {
+                const error = new Error('완료된 세션의 핵심 정보는 수정할 수 없습니다.');
+                error.status = 403;
+                throw error;
+            }
+        }
+
+        if (Object.keys(updateData).length === 0) return session;
+
+        return await this.repository.update(id, updateData);
+    }
+
+    // =================================================================
+    // 5. [목록 조회] Find All
+    // =================================================================
     async findAll(params) {
         const page = parseInt(params.page) || 1;
         const limit = parseInt(params.limit) || 20;
         const offset = (page - 1) * limit;
 
-        const filters = {};
-        const excludeKeys = ['page', 'limit', 'sortBy', 'sortOrder'];
-        
-        Object.keys(params).forEach(key => {
-            if (!excludeKeys.includes(key) && params[key] !== undefined) {
-                filters[key] = params[key];
-            }
-        });
-
         const sortOptions = {
-            sortBy: params.sortBy || 'entryTime',
+            sortBy: params.sortBy || 'entry_time',
             sortOrder: params.sortOrder || 'DESC'
         };
 
-        const { rows, count } = await this.parkingSessionRepository.findAll(filters, sortOptions, limit, offset);
+        const filters = { ...params };
+        delete filters.page;
+        delete filters.limit;
+        delete filters.sortBy;
+        delete filters.sortOrder;
+
+        const { rows, count } = await this.repository.findAll(filters, sortOptions, limit, offset);
 
         return {
             sessions: rows,
             meta: {
-                totalItems: count,
+                totalItems: parseInt(count),
                 totalPages: Math.ceil(count / limit),
                 currentPage: page,
                 itemsPerPage: limit
@@ -155,185 +354,18 @@ class ParkingSessionService {
         };
     }
 
+    // =================================================================
+    // 6. [상세 조회] Find Detail
+    // =================================================================
     async findDetail(id) {
-        return await this.parkingSessionRepository.findById(id);
-    }
-
-    /**
-     * 주차 세션 수정 (정책 기반 업데이트)
-     * - [기능 추가] 출차 시간 입력 시 자동으로 요금(TotalFee) 계산 로직 수행
-     */
-    async update(id, data) {
-        const session = await this.parkingSessionRepository.findById(id);
+        const session = await this.repository.findById(id);
         if (!session) {
-            const error = new Error('주차 세션을 찾을 수 없습니다.');
+            const error = new Error('해당 주차 세션을 찾을 수 없습니다.');
             error.status = 404;
             throw error;
         }
-
-        // [STEP 1] 수정 가능한 기본 필드 정의
-        let allowedFields = [
-            'carNumber', 'vehicleType',             
-            'entryTime', 'exitTime',                
-            'entryZoneId', 'entryLaneId',           
-            'exitZoneId', 'exitLaneId',
-            'status',                               
-            'note',                                 
-            'preSettledAt',
-            'discountPolicyId'
-        ];
-
-        // [STEP 2] 상황별 필드 제한
-        const closedStatuses = ['COMPLETED', 'CANCELLED', 'FORCE_COMPLETED', 'RUNAWAY'];
-
-        if (closedStatuses.includes(session.status)) {
-            allowedFields = ['note'];
-        }
-
-        if (session.paidFee > 0) {
-            allowedFields = allowedFields.filter(field => !['carNumber', 'entryTime'].includes(field));
-        }
-
-        // [STEP 3] 입력 데이터 필터링
-        const updateData = {};
-        const attemptedFields = Object.keys(data);
-        let targetPolicyId = null;
-
-        for (const field of attemptedFields) {
-            if (data[field] === undefined) continue;
-
-            if (allowedFields.includes(field)) {
-                if (field === 'discountPolicyId') {
-                    targetPolicyId = data[field];
-                } else {
-                    updateData[field] = data[field];
-                }
-            } else {
-                throw new Error(`현재 상태에서는 '${field}' 필드를 수정할 수 없습니다.`);
-            }
-        }
-
-        // [중요] 업데이트할 데이터 병합 (계산을 위해)
-        const mergedData = { ...session, ...updateData };
-
-        // [STEP 4] 주차 시간 및 기본 요금 자동 계산 (FeeService 활용)
-        if (updateData.exitTime) {
-            const entryTime = new Date(mergedData.entryTime);
-            const exitTime = new Date(updateData.exitTime);
-
-            if (entryTime >= exitTime) {
-                throw new Error(`논리적 오류: 출차 시간(${exitTime.toISOString()})이 입차 시간보다 빠를 수 없습니다.`);
-            }
-
-            const diffMs = exitTime - entryTime;
-            const duration = Math.floor(diffMs / 1000 / 60);
-            
-            updateData.duration = duration;
-            mergedData.duration = duration;
-
-            // ★ 요금 자동 계산 (완료 상태가 아닐 때만)
-            if (!closedStatuses.includes(session.status)) {
-                // 1. 해당 사이트의 기본 요금 정책(FEE) 조회
-                const { rows: feePolicies } = await this.policyRepository.findAll(
-                    { siteId: session.siteId, type: 'FEE' },
-                    { sortBy: 'created_at', sortOrder: 'DESC' },
-                    1, 0
-                );
-                
-                const feeConfig = feePolicies.length > 0 ? feePolicies[0].config : null;
-
-                // 2. FeeService를 통해 요금 계산
-                const calculatedFee = this.feeService.calculateFee(duration, feeConfig);
-                updateData.totalFee = calculatedFee;
-                mergedData.totalFee = calculatedFee;
-            }
-            
-            // 상태 자동 전환
-            if (!updateData.status && !closedStatuses.includes(session.status)) {
-                updateData.status = 'COMPLETED';
-            }
-        }
-
-        // [STEP 5] 정책 기반 할인 계산 (FeeService 활용)
-        if (targetPolicyId) {
-            // [수정] discountPolicyRepository 제거 -> policyRepository 사용
-            const policy = await this.policyRepository.findById(targetPolicyId);
-            if (!policy) throw new Error('존재하지 않는 정책 ID입니다.');
-
-            // [검증] 할인 정책인지 확인
-            if (policy.type !== 'DISCOUNT') {
-                throw new Error('선택하신 정책은 할인 정책이 아닙니다.');
-            }
-
-            // 현재 총 요금
-            const currentTotal = mergedData.totalFee; 
-            const currentDiscount = session.discountFee; 
-            const paid = session.paidFee;
-
-            const remaining = currentTotal - currentDiscount - paid;
-
-            if (remaining <= 0) {
-                 throw new Error('잔여 요금이 없어 할인을 적용할 수 없습니다.');
-            }
-
-            // FeeService를 통해 할인 금액 계산 (policy.config 전달)
-            let discountAmount = this.feeService.calculateDiscountAmount(currentTotal, policy.config);
-
-            // 잔여 금액 초과 방지
-            if (discountAmount > remaining) discountAmount = remaining;
-
-            updateData.discountFee = currentDiscount + discountAmount;
-            
-            const newDiscountLog = {
-                policyId: policy.id,
-                name: policy.name,
-                type: policy.type,
-                value: policy.config.discountValue, 
-                amount: discountAmount,
-                appliedAt: new Date(),
-                method: 'MANUAL_ADMIN'
-            };
-
-            const currentDiscounts = session.appliedDiscounts || [];
-            updateData.appliedDiscounts = [...currentDiscounts, newDiscountLog];
-            
-            // 병합 데이터 갱신
-            mergedData.discountFee = updateData.discountFee;
-        }
-
-        // [STEP 6] 최종 논리 검증 및 미납 체크
-        if (Object.keys(updateData).length === 0 && !targetPolicyId) {
-             return session;
-        }
-
-        // 요금 정합성 체크
-        if (mergedData.totalFee < (mergedData.discountFee + mergedData.paidFee)) {
-             throw new Error(`데이터 오류: 할인과 결제액의 합이 총 요금을 초과합니다.`);
-        }
-
-        // 출처 기록
-        if (['COMPLETED', 'FORCE_COMPLETED', 'CANCELLED', 'RUNAWAY'].includes(updateData.status || mergedData.status)) {
-            if (!closedStatuses.includes(session.status)) {
-                updateData.exitSource = 'ADMIN';
-            }
-        }
-
-        // 미납 체크
-        const finalStatus = updateData.status || mergedData.status;
-        if (finalStatus === 'COMPLETED') {
-            const balance = mergedData.totalFee - (mergedData.discountFee + mergedData.paidFee);
-            if (balance > 0) {
-                 throw new Error(`미납금(${balance}원)이 존재하여 정상 출차(COMPLETED) 처리가 불가능합니다. 강제 출차(FORCE_COMPLETED)를 이용하세요.`);
-            }
-        }
-
-        // [STEP 7] DB 업데이트
-        const result = await this.parkingSessionRepository.update(id, updateData, pool);
-        if (!result) {
-             throw new Error('업데이트에 실패했습니다.');
-        }
-        return result;
+        return session;
     }
 }
 
-module.exports = ParkingSessionService;
+module.exports = new ParkingSessionService();

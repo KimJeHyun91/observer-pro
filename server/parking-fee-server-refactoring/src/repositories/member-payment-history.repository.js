@@ -291,6 +291,28 @@ class MemberPaymentHistoryRepository {
         const { rows } = await pool.query(query, [memberIds]);
         return rows.map(row => humps.camelizeKeys(row));
     }
+
+    /**
+     * [추가] 입차 로직용: 차량 번호로 현재 유효한 정기권 조회
+     * - ParkingSessionService.create() 에서 호출
+     */
+    async findValidMembership(carNumber) {
+        // 1. 차량 번호 일치
+        // 2. 현재 날짜가 시작일과 종료일 사이 (유효 기간 내)
+        // 3. 결제 상태가 성공(SUCCESS)
+        const query = `
+            SELECT * FROM pf_member_payment_histories
+            WHERE car_number = $1
+              AND start_date <= CURRENT_DATE
+              AND end_date >= CURRENT_DATE
+              AND payment_status = 'SUCCESS'
+            ORDER BY end_date DESC
+            LIMIT 1
+        `;
+        
+        const { rows } = await pool.query(query, [carNumber]);
+        return rows[0] ? humps.camelizeKeys(rows[0]) : null;
+    }
 }
 
 module.exports = MemberPaymentHistoryRepository;
