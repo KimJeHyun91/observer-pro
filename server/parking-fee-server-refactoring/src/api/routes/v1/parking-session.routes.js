@@ -32,13 +32,24 @@ router.get(
 
 /**
  * @route   POST /api/v1/parking-sessions
- * @desc    [수동 입차] 관리자 강제 입차 포함 (entrySource='ADMIN')
+ * @desc    주차 세션 생성
  */
 router.post(
     '/', 
     validator.validateCreate, 
     validate, 
     parkingSessionController.create
+);
+
+/**
+ * @route   POST /api/v1/parking-sessions/entry
+ * @desc    [수동 입차] 관리자 강제 입차 포함 (entrySource='ADMIN')
+ */
+router.post(
+    '/entry', 
+    validator.validateEntry, 
+    validate, 
+    parkingSessionController.entry
 );
 
 // ==========================================

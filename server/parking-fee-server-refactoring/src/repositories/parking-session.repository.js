@@ -4,7 +4,7 @@ const humps = require('humps');
 class ParkingSessionRepository {
 
     // [상수] 활성 상태 목록 (진행 중인 세션)
-    static ACTIVE_STATUSES = ['ACTIVE', 'PENDING', 'PENDING_PAYMENT', 'PRE_SETTLED'];
+    static ACTIVE_STATUSES = ['PENDING', 'PAYMENT_PENDING', 'PRE_SETTLED', 'PENDING_ENTRY', 'PENDING_EXIT'];
 
     // [보안] 정렬 가능한 컬럼 제한
     static ALLOWED_SORT_COLUMNS = [
@@ -19,7 +19,7 @@ class ParkingSessionRepository {
         'exit_zone_id', 'exit_zone_name', 'exit_lane_id', 'exit_lane_name', 
         'exit_time', 'exit_image_url', 'exit_source', 
         'duration', 'parking_fee', 'total_fee', 'discount_amount', 'discount_fee', 'paid_amount', 'paid_fee', 
-        'applied_discounts', 'status', 'pre_settled_at'
+        'applied_discounts', 'status', 'pre_settled_at', 'updated_at'
     ];
 
     /**
@@ -45,7 +45,7 @@ class ParkingSessionRepository {
             data.siteName,
             data.siteCode || null,
             
-            data.zoneId || null, 
+            data.entryZoneId || null, 
             data.entryLaneId || null, 
             data.entryLaneName || null,
             
@@ -122,9 +122,13 @@ class ParkingSessionRepository {
         const values = [id]; // $1
         let valIndex = 2;
 
+        let hasUpdatedAt = false;
+
         keys.forEach(key => {
             const dbCol = humps.decamelize(key);
             const value = data[key];
+
+            if (dbCol === 'updated_at') hasUpdatedAt = true;
 
             if (key === 'appliedDiscounts') {
                 // JSONB 배열 처리
@@ -137,15 +141,25 @@ class ParkingSessionRepository {
             valIndex++;
         });
 
+        if (!hasUpdatedAt) {
+            setClauses.push('updated_at = NOW()');
+        }
+
         const query = `
             UPDATE pf_parking_sessions
-            SET ${setClauses.join(', ')}, updated_at = NOW()
+            SET ${setClauses.join(', ')}
             WHERE id = $1
             RETURNING *
         `;
 
-        const { rows } = await db.query(query, values);
-        return rows[0] ? humps.camelizeKeys(rows[0]) : null;
+        try {
+            const { rows } = await db.query(query, values);
+            return rows[0] ? humps.camelizeKeys(rows[0]) : null;
+        } catch (error) {
+            // 디버깅을 위해 쿼리와 에러 로그 출력 추천
+            console.error('[Repository Update Error]', error.message);
+            throw error;
+        }
     }
 
     /**
@@ -167,38 +181,58 @@ class ParkingSessionRepository {
         const values = [];
         let paramIndex = 1;
 
-        // 검색 허용 컬럼
-        const textColumns = ['car_number', 'site_name', 'note', 'entry_lane_name', 'exit_lane_name'];
+        const { startTime, endTime, ...otherFilters } = filters;
 
-        Object.keys(filters).forEach(key => {
-            const value = filters[key];
-            if (value === undefined || value === null || value === '') return;
-
-            // 날짜 범위 검색
-            if (key.endsWith('Start') || key.endsWith('End')) {
-                const isStart = key.endsWith('Start');
-                const baseKey = key.replace(isStart ? 'Start' : 'End', '');
-                const dbCol = humps.decamelize(baseKey); // entryTime -> entry_time
-                const operator = isStart ? '>=' : '<=';
-                
-                let timeVal = value;
-                if (!isStart && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-                    timeVal = `${value} 23:59:59.999`;
-                }
-
-                whereClauses.push(`s.${dbCol} ${operator} $${paramIndex}`);
-                values.push(timeVal);
+        // "기간 내에 입차했거나" OR "기간 내에 출차했거나"
+        if (startTime || endTime) {
+            const timeConditions = [];
+            
+            // 시작일 처리
+            if (startTime) {
+                // (입차 >= 시작일 OR 출차 >= 시작일)
+                // $paramIndex 값을 재사용하기 위해 values에 넣고 인덱스 관리 필요
+                values.push(startTime);
+                timeConditions.push(`(s.entry_time >= $${paramIndex} OR s.exit_time >= $${paramIndex})`);
                 paramIndex++;
-                return;
             }
 
-            const dbCol = humps.decamelize(key);
+            // 종료일 처리
+            if (endTime) {
+                let timeVal = endTime;
+                // 날짜만 들어오면 그 날의 끝까지 조회 (YYYY-MM-DD -> YYYY-MM-DD 23:59:59)
+                if (/^\d{4}-\d{2}-\d{2}$/.test(endTime)) {
+                    timeVal = `${endTime} 23:59:59.999`;
+                }
+                
+                values.push(timeVal);
+                timeConditions.push(`(s.entry_time <= $${paramIndex} OR s.exit_time <= $${paramIndex})`);
+                paramIndex++;
+            }
+
+            // AND로 묶어서 전체 조건에 추가
+            if (timeConditions.length > 0) {
+                whereClauses.push(`(${timeConditions.join(' AND ')})`);
+            }
+        }
+
+        // 2. [나머지 필터] 자동 매핑 (carNumber, siteId, status, entrySource, exitSource 등)
+        // 검색 허용 컬럼 (LIKE 검색용)
+        const textColumns = ['car_number', 'site_name', 'note', 'entry_lane_name', 'exit_lane_name'];
+
+        Object.keys(otherFilters).forEach(key => {
+            const value = otherFilters[key];
+            if (value === undefined || value === null || value === '') return;
+
+            const dbCol = humps.decamelize(key); // entrySource -> entry_source
+            
+            // SQL Injection 방지용 컬럼명 검사
             if (!/^[a-z0-9_]+$/.test(dbCol)) return;
 
             if (textColumns.includes(dbCol)) {
                 whereClauses.push(`s.${dbCol} ILIKE $${paramIndex}`);
                 values.push(`%${value}%`);
             } else {
+                // ID, Status, Source 등은 정확한 매칭 (=)
                 whereClauses.push(`s.${dbCol} = $${paramIndex}`);
                 values.push(value);
             }
@@ -218,7 +252,7 @@ class ParkingSessionRepository {
         query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         values.push(limit, offset);
 
-        // 카운트
+        // 카운트 쿼리
         const countQuery = `
             SELECT COUNT(*) FROM pf_parking_sessions s
             ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
@@ -238,6 +272,22 @@ class ParkingSessionRepository {
         } finally {
             client.release();
         }
+    }
+
+    /**
+     * [Gate Logic] 특정 차선에서 '진입/진출 대기 중'인 가장 최근 세션 조회
+     * - 차단기가 내려갔을 때, 어떤 차에 대한 것인지 찾기 위함
+     */
+    async findLatestTransitioningSession(laneId) {
+        const query = `
+            SELECT * FROM pf_parking_sessions
+            WHERE (entry_lane_id = $1 OR exit_lane_id = $1)
+              AND status IN ('PENDING_ENTRY', 'PENDING_EXIT')
+            ORDER BY updated_at DESC
+            LIMIT 1
+        `;
+        const { rows } = await pool.query(query, [laneId]);
+        return rows[0] ? humps.camelizeKeys(rows[0]) : null;
     }
 }
 

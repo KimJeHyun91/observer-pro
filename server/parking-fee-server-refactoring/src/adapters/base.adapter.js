@@ -14,10 +14,10 @@ class BaseAdapter {
 
     /**
      * 차단기(Gate) 개방 명령
-     * @param {string} laneId - 제어할 차선 ID
+     * @param {string} target - 장비가 식별할 수 있는 위치명(Location) 또는 ID
      * @returns {Promise<boolean>} 성공 여부
      */
-    async openGate(laneId) {
+    async openGate(target) {
         throw new Error('openGate() must be implemented');
     }
 

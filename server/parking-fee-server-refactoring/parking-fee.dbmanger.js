@@ -463,6 +463,8 @@ async function initParkingFeeDbSchema() {
                 -- CANCELLED(취소/오인식무효화)
                 -- RUNAWAY(도주)
                 -- FORCE_COMPLETED(강제 출차완료: 관리자 수동 출차완료 처리 또는 출차 기록이 없고 입차 기록만 있는 차량이 재입차 했을 경우 처리를 위해) 
+                -- PENDING_ENTRY(입차 진행중)
+                -- PENDING_EXIT(출차 진행중)
                 status TEXT DEFAULT 'PENDING',
 
                 note TEXT, -- 메모

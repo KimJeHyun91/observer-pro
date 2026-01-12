@@ -286,6 +286,50 @@ class DeviceRepository {
 
         return rows[0];
     }
+
+    async findOneByLocation(locationName) {
+        if (!locationName) return null;
+
+        const query = `
+            SELECT 
+                d.id as device_id, 
+                d.ip_address as device_ip, 
+                d.port as device_port, 
+                d.direction as direction,
+                
+                l.id as lane_id,
+                
+                z.id as zone_id,
+                
+                s.id as site_id,
+                
+                dc.id as device_controller_id,
+                dc.ip_address as device_controller_ip_address,
+                dc.port as device_controller_port
+                
+            FROM pf_devices d
+            LEFT JOIN pf_lanes l ON d.lane_id = l.id
+            LEFT JOIN pf_zones z ON l.zone_id = z.id
+            LEFT JOIN pf_sites s ON z.site_id = s.id
+            LEFT JOIN pf_device_controllers dc ON d.device_controller_id = dc.id
+            WHERE d.location LIKE '%' || $1 || '%' 
+                AND d.type = 'INTEGRATED_GATE'
+            LIMIT 1
+        `;
+
+        const client = await pool.connect();
+        try {
+            const result = await client.query(query, [locationName]);
+            
+            if (result.rows.length > 0) {
+                // Repository가 DB Raw 데이터를 객체로 변환해서 반환
+                return humps.camelizeKeys(result.rows[0]);
+            }
+            return null;
+        } finally {
+            client.release();
+        }
+    }
 }
 
 module.exports = DeviceRepository;

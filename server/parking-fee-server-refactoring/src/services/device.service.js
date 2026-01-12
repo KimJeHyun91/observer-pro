@@ -95,20 +95,11 @@ class DeviceService {
     }
 
     /**
-     * [추가] Location 이름으로 장비 단건 조회
-     * - PLS 데이터 수신 시 Context(Site, Lane) 파악용
+     * 장비 위치 정보 조회 (Repository 위임)
      */
-    async findOneByLocation(location) {
-        if (!location) return null;
-
-        // Repository의 findAll 메서드를 재사용하여 location으로 검색
-        // (limit: 1로 설정하여 하나만 가져옴)
-        const result = await this.repository.findAll({ location }, {}, 1, 0);
-        
-        if (result.rows && result.rows.length > 0) {
-            return result.rows[0];
-        }
-        return null;
+    async findOneByLocation(locationName) {
+        // 단순히 Repository에게 요청을 전달하고 결과 반환
+        return await this.repository.findOneByLocation(locationName);
     }
 
     /**

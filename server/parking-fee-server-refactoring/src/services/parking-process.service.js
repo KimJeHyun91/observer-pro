@@ -4,6 +4,7 @@ const LaneRepository = require('../repositories/lane.repository'); // [필수] �
 const FeeService = require('./fee.service');
 const AlertService = require('./alert.service');
 const logger = require('../../../logger');
+const AdapterFactory = require('../adapters/adapter.factory'); // 팩토리 추가
 
 class ParkingProcessService {
     constructor() {
@@ -104,7 +105,7 @@ class ParkingProcessService {
                 entryImageUrl: imageUrl,
                 entrySource: 'SYSTEM', // LPR 등 자동 입차
                 
-                status: 'PENDING',
+                status: 'PENDING_ENTRY',
                 note: activeSession ? '재입차(Ghost 처리됨)' : null
             });
 
@@ -113,17 +114,37 @@ class ParkingProcessService {
 
             logger.info(`[Process:Entry] 세션 생성 완료: ${carNumber} (ID: ${newSession.id})`);
 
+            let vehicleTypeName = "";
+
+            switch (data.vehicleType) {
+                case 'MEMBER':
+                    vehicleTypeName = "정기권";
+                    break; 
+
+                case "COMPACT":
+                    vehicleTypeName = "경차";
+                    break;
+
+                case "ELECTRIC":
+                    vehicleTypeName = "전기차";
+                    break;
+
+                default:
+                    vehicleTypeName = "일반"; // '='를 사용하여 값을 할당해야 합니다.
+                    break;
+            }
+
             const socketPayload = {
                 direction: 'IN',
-                site_id: siteId,
-                device_ip: ip || null,     // 차단기/LPR IP
-                device_port: port || null, // 포트
-                image_url: imageUrl,
-                loop_event_time: eventTime,      // 입차 인식 시각
+                siteId: siteId,
+                deviceIp: ip || null,     // 차단기/LPR IP
+                devicePort: port || null, // 포트
+                imageUrl: imageUrl,
+                eventTime: eventTime,      // 입차 인식 시각
                 
                 location: locationName,
                 
-                carnumber: carNumber,
+                carNumber: carNumber,
                 
                 // 입차 시점 금액 정보 (0원)
                 totalFee: 0,
@@ -131,12 +152,23 @@ class ParkingProcessService {
                 discountFee: 0,
                 preSettledFee: 0,
                 
-                isBlacklist: isBlacklist 
+                isBlacklist: isBlacklist,
+
+                vehicleType: vehicleTypeName,
+                
+                rtspUrl: null,
+                parkingSessionId: newSession.id
             };
 
             // 
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { parkingSession: { 'data': socketPayload }});
+                global.websocket.emit("pf_lpr-update", { parkingSession: { 'data': socketPayload }});
+            }
+
+            if (shouldOpenGate) {
+
+                await this._triggerOpenGate(data.deviceControllerId, data.locationName);
+
             }
 
             return {
@@ -181,8 +213,12 @@ class ParkingProcessService {
                 if (lane) exitLaneName = lane.name;
             }
 
+            console.log('4444444444444444444' + siteId + '  ' + carNumber);
+
             // 1. 활성 세션(입차 기록) 조회
             let session = await this.sessionRepository.findActiveSession(siteId, carNumber);
+
+            console.log('5555555555555555555555', {session});
 
             // 2. [GHOST EXIT] 미입차 차량 출차 시도 처리
             if (!session) {
@@ -199,21 +235,7 @@ class ParkingProcessService {
                 // Ghost Session 생성을 위해 사이트 이름 조회
                 const site = await this.siteRepository.findById(siteId);
 
-                // 기록용 세션 생성 (상태: GHOST_EXIT)
-                session = await this.sessionRepository.create({
-                    siteId,
-                    siteName: site ? site.name : 'Unknown Site', // 필수
-                    
-                    exitLaneId: laneId,
-                    exitLaneName: exitLaneName,
-                    
-                    carNumber,
-                    entryTime: eventTime, // 입차 시간 불명이므로 출차 시간으로 기록
-                    exitTime: eventTime,
-                    
-                    status: 'GHOST_EXIT',
-                    description: '입차 기록 없이 출차 시도됨'
-                });
+                // !!! 미입차 차량 출차 시도 소켓 고려
                 
                 return {
                     success: false,
@@ -227,9 +249,26 @@ class ParkingProcessService {
             const feeResult = await this.feeService.calculate({
                 entryTime: session.entryTime,
                 exitTime: eventTime,
-                isMember: session.isMember,
+                vehicleType: session.vehicleType,
                 siteId: siteId
             });
+
+            // [수정 핵심 1] 잔여 요금(미납금) 계산
+            // 총 요금 - (할인 합계 + 기납부 요금)
+            const totalDiscount = (session.discountFee || 0) + feeResult.discountAmount; // 기존 할인 + 신규 할인(감면 등)
+            const alreadyPaid = session.paidFee || 0;
+
+            const remainingFee = Math.max(0, feeResult.totalFee - totalDiscount - alreadyPaid);
+
+            // 5. 차단기 개방 여부 판단 (0원일 때만 자동 개방)
+            const shouldOpenGate = (feeResult.finalFee === 0);
+
+            // ★ [수정] 상태 결정 로직
+            // - 돈을 다 냈으면(0원) -> 'PENDING_EXIT' (나가세요, 차단기 통과 대기)
+            // - 돈이 남았으면 -> 'PAYMENT_PENDING' (돈 내세요)
+            const nextStatus = shouldOpenGate ? 'PENDING_EXIT' : 'PAYMENT_PENDING';
+
+            console.log(`10101010101010: ${laneId}`)
 
             // 4. 세션 업데이트 (출차 정보 및 요금 기록)
             const updatedSession = await this.sessionRepository.updateExit(session.id, {
@@ -240,38 +279,55 @@ class ParkingProcessService {
                 exitLaneName: exitLaneName, // 출차 차선명 업데이트
                 
                 totalFee: feeResult.totalFee,
-                discountFee: feeResult.discountAmount,
-                // [수정 후] 
-                // 무료(0원)라면 '0원 결제완료'로 봅니다.
-                // 유료(>0원)라면 아직 결제 전이므로 '0원'으로 기록합니다.
-                paidFee: 0,
+                discountFee: totalDiscount,
+
+
+                paidFee: alreadyPaid,
                 duration: feeResult.durationMinutes,
                 
                 // 0원이면 바로 완료(COMPLETED), 요금이 있으면 결제 대기(PAYMENT_PENDING)
-                status: feeResult.finalFee === 0 ? 'COMPLETED' : 'PAYMENT_PENDING' 
-            });
-
-            // 5. 차단기 개방 여부 판단 (0원일 때만 자동 개방)
-            const shouldOpenGate = (feeResult.finalFee === 0);
+                status: nextStatus
+            });       
 
             if (shouldOpenGate) {
                 logger.info(`[Process:Exit] 무료/회차 출차: ${carNumber} (요금 0원)`);
+                await this._triggerOpenGate(data.deviceControllerId, data.locationName);
             } else {
                 logger.info(`[Process:Exit] 과금 출차 대기: ${carNumber} (요금 ${feeResult.finalFee}원)`);
                 // 여기서 정산기 화면에 요금을 띄우는 명령을 보낼 수도 있음 (PlsService 레벨에서 처리 권장)
             }
 
+            let vehicleTypeName = '';
+
+            switch (session.vehicleType) {
+                case 'MEMBER':
+                    vehicleTypeName = "정기권";
+                    break; 
+
+                case "COMPACT":
+                    vehicleTypeName = "경차";
+                    break;
+
+                case "ELECTRIC":
+                    vehicleTypeName = "전기차";
+                    break;
+
+                default:
+                    vehicleTypeName = "일반"; // '='를 사용하여 값을 할당해야 합니다.
+                    break;
+            }
+
             const socketPayload = {
                 direction: 'OUT',
-                site_id: siteId,
-                device_ip: ip || null,     // 차단기/LPR IP
-                device_port: port || null, // 포트
-                image_url: imageUrl,
-                loop_event_time: eventTime,      // 입차 인식 시각
+                siteId: siteId,
+                deviceIp: ip || null,     // 차단기/LPR IP
+                devicePort: port || null, // 포트
+                imageUrl: imageUrl,
+                eventTime: eventTime,      // 입차 인식 시각
                 
                 location: locationName,
                 
-                carnumber: carNumber,
+                carNumber: carNumber,
                 
                 // 입차 시점 금액 정보 (0원)
                 totalFee: 0,
@@ -279,21 +335,25 @@ class ParkingProcessService {
                 discountFee: 0,
                 preSettledFee: 0,
                 
-                isBlacklist: isBlacklist 
+                isBlacklist: isBlacklist,
+
+                vehicleType: vehicleTypeName,
+                rtspUrl: null,
+                parkingSessionId: session.id
             };
 
             // 
             if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { parkingSession: { 'data': socketPayload }});
+                global.websocket.emit("pf_lpr-update", { parkingSession: { 'data': socketPayload }});
             }
 
 
             return {
                 success: true,
                 shouldOpenGate,
-                message: 'Exit Processed',
+                message: shouldOpenGate ? 'Exit Allowed' : 'Payment Required',
                 data: {
-                    fee: feeResult.finalFee,
+                    fee: remainingFee,
                     session: updatedSession
                 }
             };
@@ -301,6 +361,114 @@ class ParkingProcessService {
         } catch (error) {
             logger.error(`[Process:Exit] 실패: ${error.message}`);
             throw error;
+        }
+    }
+
+    /**
+     * [Helper] 차단기 개방 명령 전송
+     * @param {string} controllerId - 장비 제어기 ID
+     * @param {string} locationName - 장비 위치명 (LPR 데이터의 location)
+     */
+    async _triggerOpenGate(controllerId, locationName) {
+        try {
+            if (!controllerId) {
+                logger.warn(`[Process] 차단기 개방 실패: Controller ID 없음 (${locationName})`);
+                return;
+            }
+
+            // 1. 팩토리에서 어댑터 가져오기
+            const adapter = await AdapterFactory.getAdapter(controllerId);
+            
+            // 2. 차단기 개방 명령 (PlsAdapter.openGate 호출)
+            logger.info(`[Process] 차단기 개방 명령 전송 -> ${locationName}`);
+            const result = await adapter.openGate(locationName);
+            
+            if (!result) logger.warn(`[Process] 차단기 개방 응답 실패 (${locationName})`);
+
+        } catch (error) {
+            logger.error(`[Process] 차단기 제어 중 오류: ${error.message}`);
+        }
+    }
+
+    // =================================================================
+    // [NEW] 차단기 닫힘(Down) 신호 처리 -> 세션 상태 확정 (입차완료/출차완료)
+    // - 호출처: PlsService.updateGateStatus (status === 'down' 일 때)
+    // =================================================================
+    async confirmGatePassage(laneId, eventTime) {
+        try {
+            logger.info(`[Gate] 차단기 닫힘(Down) 신호 수신 - LaneID: ${laneId}`);
+
+            // 1. 해당 차선에서 '진입/진출 대기 중'인 세션 조회
+            // (Repository에 findLatestTransitioningSession 메서드가 구현되어 있어야 함)
+            const session = await this.sessionRepository.findLatestTransitioningSession(laneId);
+
+            if (!session) {
+                // 이미 처리가 끝났거나, 차단기만 오작동한 경우 등
+                logger.debug(`[Gate] 해당 차선에 상태 변경 대기 중(PENDING_ENTRY/EXIT)인 세션이 없습니다.`);
+                return;
+            }
+
+            let nextStatus = null;
+            let noteAppend = '';
+            let logMessage = '';
+
+            // 2. 현재 상태에 따른 다음 상태 결정
+            if (session.status === 'PENDING_ENTRY') {
+                // [입차 시나리오] 차단기 통과 -> '주차 중(PENDING)'으로 확정
+                nextStatus = 'PENDING'; 
+                noteAppend = ' (입차 차단기 통과 확인)';
+                logMessage = `[Gate] 입차 완료 확정: ${session.carNumber}`;
+            } 
+            else if (session.status === 'PENDING_EXIT') {
+                // [출차 시나리오] 차단기 통과 -> '종료(COMPLETED)'로 확정
+                nextStatus = 'COMPLETED'; 
+                noteAppend = ' (출차 차단기 통과 확인)';
+                logMessage = `[Gate] 출차 완료 확정: ${session.carNumber}`;
+            }
+            else {
+                // PAYMENT_PENDING 상태에서 문이 닫힌 경우 (도주, 회차, 혹은 단순 오작동)
+                // 로직에 따라 여기서 처리를 안 하거나, 별도 로그를 남김
+                logger.warn(`[Gate] 미결제/대기 상태(${session.status})에서 차단기 닫힘 감지: ${session.carNumber}`);
+                return; 
+            }
+
+            console.log('9999999999999999999: ' + nextStatus);
+
+            // 3. DB 업데이트 실행
+            // (일반 update 메서드를 재사용하거나, 특정 필드만 바꾸는 메서드 사용)
+            const updatedSession = await this.sessionRepository.update(session.id, {
+                status: nextStatus,
+                note: (session.note || '') + noteAppend
+            });
+
+            logger.info(logMessage);
+
+            // 4. [웹소켓] 클라이언트 UI 갱신 (선택 사항)
+            // - 상태가 변경되었음을 알려주어, 키오스크 화면을 초기화하거나 "입차완료" 메시지를 띄움
+            if (global.websocket) {
+                // 필요한 데이터만 페이로드 구성
+                const socketPayload = {
+                    parkingSessionId: updatedSession.id,
+                    carNumber: updatedSession.carNumber,
+                    status: nextStatus, // PENDING or COMPLETED
+                    
+                    // 클라이언트가 어떤 차선인지 알 수 있게 정보 포함
+                    siteId: updatedSession.siteId,
+                    laneId: laneId, 
+                    location: updatedSession.entryLaneId === laneId ? updatedSession.entryLaneName : updatedSession.exitLaneName,
+
+                    eventTime: eventTime || new Date(),
+                    message: session.status === 'PENDING_ENTRY' ? '입차 완료' : '출차 완료'
+                };
+
+                // 'pf_session-update' 같은 별도 이벤트를 쓰거나, 기존 'pf_lpr-update'를 재활용
+                global.websocket.emit("pf_lpr-update", { parkingSession: { 'data': socketPayload }});
+            }
+
+            return updatedSession;
+
+        } catch (error) {
+            logger.error(`[Gate] 상태 확정 처리 중 오류: ${error.message}`);
         }
     }
 }

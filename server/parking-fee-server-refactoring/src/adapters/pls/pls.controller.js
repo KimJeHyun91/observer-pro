@@ -13,6 +13,8 @@ class PlsController {
             // 응답이 늦으면 장비에서 타임아웃 발생 가능성 있음
             res.status(200).json({ status: 'ok', message: '' });
 
+            console.log('1111111111 {}', req.body);
+
             // 서비스 로직 실행
             // (에러가 발생해도 위에서 이미 응답을 보냈으므로 장비 통신에는 영향 없음)
             await plsService.processLprData(req.body);
@@ -32,17 +34,14 @@ class PlsController {
      */
     handleGateStateEvent = async (req, res, next) => {
         try {
-            const { location, status, descript, loop_event_time } = req.body;
 
             // [규격 준수] 즉시 응답
             res.status(200).json({ status: 'ok', message: '' });
 
+            console.log('222222222222222 {}', req.body);
+
             // 상태 업데이트 로직 호출
-            await plsService.updateGateStatus({
-                locationName: location,
-                status: status, // "up" or "down"
-                eventTime: loop_event_time
-            });
+            await plsService.updateGateStatus(req.body);
 
         } catch (error) {
             logger.error(`[PLS Controller] Gate Event Error: ${error.message}`);

@@ -10,11 +10,12 @@ exports.validateList = [
     query('carNumber').optional().trim(),
     
     // 기간 검색
-    query('entryTimeStart').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
-    query('entryTimeEnd').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
-    query('exitTimeStart').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
-    query('exitTimeEnd').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
+    query('startTime').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
+    query('endTime').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
 
+    query('entrySource').optional().trim(),
+    query('exitSource').optional().trim(),
+    
     query('status')
         .optional()
         .toUpperCase()
@@ -36,7 +37,7 @@ exports.validateDetail = [
 ];
 
 /**
- * 3. [수동 입차] validateCreate
+ * 생성 validateCreate
  * - ID 파라미터 없음 (신규 생성)
  */
 exports.validateCreate = [
@@ -50,9 +51,58 @@ exports.validateCreate = [
         .trim()
         .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
 
+    body('entryZoneId').optional().isUUID(),
+    body('entryLaneId').optional().isUUID(),
+    
+    // [선택] 입차 시간
+    body('entryTime')
+        .optional() // 입력 안 하면 Controller/Repository에서 'NOW()' 처리
+        .isISO8601().withMessage('날짜 형식이 올바르지 않습니다.')
+        .custom((value) => {
+            const entryDate = new Date(value);
+            const now = new Date();
+            // 약간의 네트워크 지연 등을 고려해 1분 정도의 오차는 허용할 수도 있으나, 
+            // 기본적으로 미래 시간은 차단
+            if (entryDate > now) {
+                throw new Error('입차 시간은 미래일 수 없습니다.');
+            }
+            return true;
+        }),
+
+    body('force')
+        .optional()
+        .isBoolean().withMessage('force는 true/false boolean 값이어야 합니다.'),
+
+    // [선택] 차량 타입
+    body('vehicleType')
+        .optional()
+        .toUpperCase()
+        .isIn(['NORMAL', 'MEMBER', 'COMPACT', 'ELECTRIC', 'DISABLED'])
+        .withMessage('유효하지 않은 차량 타입입니다.'),
+
+    body('entryImageUrl').optional().isString(),
+
+    body('note').optional().isString()
+];
+
+/**
+ * 3. [수동 입차] validateEntry
+ * - ID 파라미터 없음 (신규 생성)
+ */
+exports.validateEntry = [
+    // [필수] 사이트 및 차량 정보
+    body('siteId')
+        .notEmpty().withMessage('siteId는 필수입니다.')
+        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+
+    body('carNumber')
+        .notEmpty().withMessage('차량 번호(carNumber)는 필수입니다.')
+        .trim()
+        .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
+
     // [선택] 입차 구역/차선 정보
     body('entryZoneId').optional().isUUID().withMessage('entryZoneId는 UUID여야 합니다.'),
-    body('entryLaneId').optional().isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
+    body('entryLaneId').notEmpty().withMessage().isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
     
     // [선택] 입차 시간
     body('entryTime')
@@ -98,7 +148,7 @@ exports.validateExit = [
 
     // [필수] 출차 시간
     body('exitTime')
-        .notEmpty().withMessage('출차 시간(exitTime)은 필수입니다.')
+        .optional()
         .isISO8601().withMessage('출차 시간 형식이 올바르지 않습니다.'),
 
     // [선택] 출차 위치 및 이미지
@@ -127,12 +177,9 @@ exports.validateDiscount = [
     param('id').notEmpty().isUUID(),
 
     // [변경] 단일 ID -> ID 배열
-    body('policyIds')
-        .optional()
-        .isArray().withMessage('할인 정책 ID 목록은 배열(Array)이어야 합니다.'),        
-        
-    body('policyIds.*') // 배열 내부 요소 검증
-        .isUUID().withMessage('유효하지 않은 정책 ID가 포함되어 있습니다.'),
+    body('policyId')
+        .notEmpty().withMessage('policyId는 필수입니다.')
+        .isUUID().withMessage('유효한 정책 ID(UUID)여야 합니다.'),   
 
     body('note').optional().isString()
 ];

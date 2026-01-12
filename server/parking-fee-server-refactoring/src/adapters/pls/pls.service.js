@@ -30,11 +30,7 @@ class PlsService {
 
         // 차량번호 공백 제거 및 '미인식' 처리
         const carNumber = lp ? lp.replace(/\s/g, '') : '미인식';
-        
-        // 이미지 URL 조합
-        const imageUrl = (image_url_header && folder_name && fname) 
-            ? `${image_url_header}${folder_name}/${fname}` 
-            : null;
+    
             
         const eventDate = loop_event_time ? new Date(loop_event_time) : new Date();
 
@@ -46,7 +42,10 @@ class PlsService {
             return;
         }
 
-        const { siteId, zoneId, laneId, deviceControllerId } = context;
+        const { siteId, zoneId, laneId, deviceIp, devicePort, deviceControllerId, deviceControllerIp, deviceControllerPort } = context;
+
+        // 이미지 주소 변환
+        const imageUrl = 'http://' + deviceControllerIp + ':' + deviceControllerPort + image_url_header + folder_name + '/' + fname;
 
         // 3. [Debounce] 중복 요청 방지 (5초)
         const safeSiteId = siteId || 'UNKNOWN';
@@ -144,9 +143,11 @@ class PlsService {
                 imageUrl,
                 isMember,
                 isBlacklist,
-                ip,
-                port
+                ip: deviceIp,
+                port: devicePort
             });
+
+            console.log('33333333333333333333333333', {processResult});
 
             // 8. [Control] 차단기 제어 (Process 결과에 따름)
             if (processResult.success && processResult.shouldOpenGate) {
@@ -164,14 +165,99 @@ class PlsService {
         }
     }
 
+    async updateGateStatus(rawData) {
+        const { location, status, ip, port, loop_event_time } = rawData;
+
+        try {
+            // 1. DeviceService로부터 조회된 Raw 데이터 받기
+            // 반환값 예시: { deviceId: 1, siteId: 2, zoneId: 3, laneId: 4, direction: 'IN', ... }
+            const deviceContext = await this.deviceService.findOneByLocation(location);
+
+            if (!deviceContext) {
+                logger.warn(`[Gate] 알 수 없는 장비: ${location}`);
+                return;
+            }
+
+            const { laneId } = deviceContext;
+
+            // 2. [추가] 차단기가 내려갔다면(down), 세션 상태 확정 로직 호출
+            if (status === 'down') {
+                logger.info(`[PLS] 차단기 닫힘 감지 -> 세션 상태 확정 시도 (${location})`);
+                
+                // ParkingSessionService 호출 (순환 참조 주의: 필요시 require를 함수 내부에서 하거나 구조 조정)
+                // 보통은 Service끼리 호출해도 괜찮지만, 구조에 따라 AdapterFactory처럼 분리할 수도 있음.
+                // 여기서는 직접 호출 가정:
+                await parkingProcessService.confirmGatePassage(laneId, loop_event_time);
+            }
+            
+            // 2. [여기서 추출!] 필요한 데이터만 골라서 소켓 Payload 구성
+            const socketPayload = {                
+                // DeviceService가 준 객체에서 필요한 것만 꺼내 씀
+                siteId: deviceContext.siteId,
+                zoneId: deviceContext.zoneId,
+                laneId: deviceContext.laneId,
+                deviceId: deviceContext.deviceId,
+                direction: deviceContext.direction || 'UNKNOWN',
+                
+                // 장비가 보낸 원본 데이터
+                deviceIp: ip,
+                devicePort: port,
+                location: location,
+                status: status, 
+                eventTime: loop_event_time
+            };
+
+            // 3. 소켓 전송
+            if (global.websocket) {
+                global.websocket.emit("pf_gate_state-update", { gateState: { 'data': socketPayload }});
+            }
+
+        } catch (error) {
+            logger.error(`[Gate] Error: ${error.message}`);
+        }
+    }
+
     /**
-     * 차단기 상태 업데이트 (Controller -> Service)
-     * - 장비로부터 상태 변경 이벤트를 받았을 때 호출됨
+     * 5. 결제 성공 처리 (정산기 -> 서버)
      */
-    async updateGateStatus({ locationName, status, eventTime }) {
-        logger.info(`[PLS Service] 차단기 상태 변경: ${locationName} -> ${status}`);
-        // TODO: DeviceStatusService 등을 통해 DB에 현재 상태(UP/DOWN) 업데이트
-        // await this.deviceService.updateDeviceStatus(locationName, status); 
+    async processPaymentSuccess(paymentData) {
+        const { carNumber, paidFee, paymentType, approvalNo, locationName } = paymentData;
+        logger.info(`[Payment] 결제 수신: ${carNumber}, 금액: ${paidFee}`);
+
+        // 1. 차량 조회 (현재 주차 중인 차량 찾기)
+        // const parkingSession = await parkingProcessService.findActiveSession(carNumber);
+        
+        // 2. 정산 반영 (DB 업데이트)
+        // await parkingProcessService.applyPayment(parkingSession.id, paidFee, paymentType, approvalNo);
+
+        // 3. 출구 정산기인 경우 차단기 개방 로직 추가 가능
+        // if (locationName.includes('출구')) { ... }
+    }
+
+    /**
+     * 6. 할인권 투입 처리
+     */
+    async processCouponInput(couponData) {
+        const { carNumber, couponCode, locationName } = couponData;
+        logger.info(`[Coupon] 할인권 투입: ${carNumber}, 코드: ${couponCode}`);
+
+        // 1. 할인권 유효성 검증
+        // 2. 할인 적용 및 잔여 요금 재계산
+        // 3. 장비에게 재계산된 요금 전송 (장비 별도 API 호출 필요)
+    }
+
+    /**
+     * 7. 차량 번호 검색 (사전 무인 정산기)
+     */
+    async searchCarAndReply({ searchKey, targetLocation, targetIp, targetPort }) {
+        logger.info(`[Search] 차량 검색 요청: 번호판 뒤 4자리 '${searchKey}'`);
+
+        // 1. 차량 리스트 조회 (LIKE %searchKey)
+        // const carList = await parkingProcessService.searchCarsByRearNumber(searchKey);
+
+        // 2. 장비 프로토콜에 맞춰 결과 전송
+        // 별도의 Adapter 혹은 Utility를 통해 UDP/TCP로 장비에게 리스트 전송
+        // await AdapterFactory.sendCarListToKiosk(targetIp, targetPort, carList);
     }
 
     /**
@@ -183,11 +269,17 @@ class PlsService {
         
         if (!device) return null;
 
+        console.log(`666666666666666666666666666: ${device.deviceIp} ${device.devicePort}`)
+
         return {
             siteId: device.siteId,
             zoneId: device.zoneId,
             laneId: device.laneId,
-            deviceControllerId: device.deviceControllerId
+            deviceIp: device.deviceIp,
+            devicePort: device.devicePort,
+            deviceControllerId: device.deviceControllerId,
+            deviceControllerIp: device.deviceControllerIpAddress,
+            deviceControllerPort: device.deviceControllerPort
         };
     }
 

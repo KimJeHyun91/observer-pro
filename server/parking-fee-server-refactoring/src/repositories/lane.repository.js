@@ -211,7 +211,11 @@ class LaneRepository {
                                'id', d.id,
                                'name', d.name,
                                'type', d.type,
-                               'status', d.status
+                               'status', d.status,
+                               
+                               -- [추가됨] 장비 제어를 위한 필수 정보
+                               'location', d.location, 
+                               'device_controller_id', d.device_controller_id
                            ) ORDER BY d.name ASC
                        ) FILTER (WHERE d.id IS NOT NULL), 
                        '[]'

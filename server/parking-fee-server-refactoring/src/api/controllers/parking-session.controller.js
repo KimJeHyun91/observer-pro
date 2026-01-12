@@ -6,14 +6,38 @@ class ParkingSessionController {
     }
 
     // =================================================================
-    // 1. [수동 입차] Create
+    // 1. [생성] Create
     // =================================================================
     create = async (req, res, next) => {
         try {
+
+            req.body.entrySource = 'ADMIN';
+
             const result = await this.parkingSessionService.create(req.body);
             
             // [통일] 생성된 데이터도 DTO 포맷으로 반환
-            res.status(201).json({
+            res.status(200).json({
+                status: 'OK',
+                message: '주차 세션이 생성되었습니다.',
+                data: this._toResponseDTO(result)
+            });
+        } catch (error) {
+            next(error);
+        }
+    };
+
+    // =================================================================
+    // 1. [수동 입차] Entry
+    // =================================================================
+    entry = async (req, res, next) => {
+        try {
+
+            req.body.entrySource = 'ADMIN';
+
+            const result = await this.parkingSessionService.entry(req.body);
+            
+            // [통일] 생성된 데이터도 DTO 포맷으로 반환
+            res.status(200).json({
                 status: 'OK',
                 message: '입차 처리가 완료되었습니다.',
                 data: this._toResponseDTO(result)
@@ -35,7 +59,7 @@ class ParkingSessionController {
             res.status(200).json({
                 status: 'OK',
                 message: '정상 출차 처리되었습니다.',
-                data: this._toResponseDTO(result)
+                data: result//this._toResponseDTO(result)
             });
         } catch (error) {
             next(error);
