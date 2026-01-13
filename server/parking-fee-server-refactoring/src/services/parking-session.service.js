@@ -74,7 +74,7 @@ class ParkingSessionService {
             // 아래의 '5. 세션 생성' 코드가 실행되어 새 세션이 만들어지고 차단기가 열립니다.
         }
 
-        return await this.repository.create({
+        const newSession = await this.repository.create({
             siteId: data.siteId,
             siteName: siteName,
             siteCode: siteCode,
@@ -95,6 +95,10 @@ class ParkingSessionService {
             note: data.note
         });
 
+        if (data.isMain) {
+            await this._attachGateLocation(newSession, data.direction);
+        }
+        return newSession;
     }
 
     // =================================================================
@@ -203,6 +207,11 @@ class ParkingSessionService {
              await this._triggerOpenGateByLane(data.entryLaneId);
         }
 
+        // [추가] 생성된 세션에 IN 방향 위치 정보 주입
+        if (data.isMain) { // 최적화: 필요한 경우에만 조회 (Controller에서 넘겨준 플래그 활용하거나 항상 조회)
+             await this._attachGateLocation(newSession, data.direction);
+        }
+
         return newSession;
     }
 
@@ -274,7 +283,7 @@ class ParkingSessionService {
         }
 
         // 5. DB 업데이트 (출차 완료 처리)
-        return await this.repository.updateExit(id, {
+        const updatedSession = await this.repository.updateExit(id, {
             exitTime: exitTime,
             exitLaneId: data.exitLaneId || null,
             exitLaneName: exitLaneName,
@@ -289,6 +298,12 @@ class ParkingSessionService {
             status: data.force ? 'FORCE_COMPLETED' : nextStatus,
             note: data.note || (data.force ? '관리자 강제 출차' : '정상 출차')
         });
+
+        // [추가] 출차이므로 OUT 방향 위치 정보 주입
+        if (data.isMain) {
+            await this._attachGateLocation(updatedSession, data.direction);
+        }        
+        return updatedSession;
     }
 
     // =================================================================
@@ -368,6 +383,10 @@ class ParkingSessionService {
 
         if (updatedSession) {
             updatedSession._action = action;
+        }
+
+        if (data.isMain) {
+            await this._attachGateLocation(updatedSession, data.direction);
         }
 
         return updatedSession;
@@ -506,6 +525,11 @@ class ParkingSessionService {
         // 요금은 위에서 DB에 저장했으므로, 굳이 다시 _recalculateRealtimeSession을 
         // 호출할 필요는 없으나, 미세한 시간 차이(ms) 보정을 위해 호출해도 무방함.
         // 여기서는 DB 저장값을 신뢰하고 그대로 반환합니다.
+
+        if (data.isMain) {
+            await this._attachGateLocation(updatedSession, data.direction);
+        }
+
         return updatedSession;
     }
 
@@ -544,7 +568,7 @@ class ParkingSessionService {
     // =================================================================
     // 6. [상세 조회] Find Detail (실시간 요금 및 할인 재계산)
     // =================================================================
-    async findDetail(id) {
+    async findDetail(id, direction, isMain) {
         // 1. DB에서 세션 조회
         const session = await this.repository.findById(id);
         
@@ -556,6 +580,10 @@ class ParkingSessionService {
 
         // 2. 실시간 요금/할인 재계산 적용
         // (진행 중인 세션일 경우 메모리 상에서 값을 갱신하여 반환)
+
+        if (isMain) {
+            await this._attachGateLocation(session, direction);
+        }
         return await this._recalculateRealtimeSession(session);
     }
 
@@ -708,6 +736,31 @@ class ParkingSessionService {
                 updatedAt: eventTime || new Date()
             });
         }
+    }
+
+    // =================================================================
+    // [공통 Helper] 세션 객체에 실제 장비 위치(location) 정보 주입
+    // =================================================================
+    async _attachGateLocation(session, direction = 'IN') {
+        if (!session) return session;
+
+        let laneId = null;
+        
+        // 방향에 따라 조회할 차선 결정
+        if (direction === 'IN') {
+            laneId = session.entryLaneId;
+        } else if (direction === 'OUT') {
+            laneId = session.exitLaneId;
+        }
+
+        // 1. Repository를 통해 장비 위치 조회
+        const realLocation = await this.repository.findGateLocationByLaneId(laneId);
+
+        // 2. 세션 객체에 임시 필드로 주입 (Controller에서 사용)
+        // 조회된 장비 위치가 없으면 기존의 LaneName을 fallback으로 사용
+        session.gateLocation = realLocation || (direction === 'IN' ? session.entryLaneName : session.exitLaneName);
+
+        return session;
     }
 }
 

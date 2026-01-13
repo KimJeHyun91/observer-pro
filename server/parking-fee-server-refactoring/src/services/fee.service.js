@@ -14,19 +14,34 @@ class FeeService {
      * @param {string} params.vehicleType - 차량 타입 (NORMAL, MEMBER, COMPACT, ELECTRIC...)
      * @param {string} params.siteId - 사이트 ID
      */
-    async calculate({ entryTime, exitTime, vehicleType, siteId }) {
+    async calculate({ entryTime, exitTime, preSettledAt, vehicleType, siteId }) {
         const start = new Date(entryTime);
-        const end = exitTime ? new Date(exitTime) : new Date();
+        let end = exitTime ? new Date(exitTime) : new Date();
 
-        // 1. 주차 시간 계산 (분 단위)
-        const durationMs = Math.max(0, end.getTime() - start.getTime());
-        const durationMinutes = Math.floor(durationMs / 60000);
-
-        logger.info(`[Fee] 요금 계산 시작: ${durationMinutes}분 (Type: ${vehicleType})`);
-
-        // 2. 정책 조회 (DB 연동)
-        // FEE 타입의 정책 중 현재 사이트에 적용된 것을 가져옴
+        // 1. 정책 가져오기
         const policyConfig = await this._getFeePolicyConfig(siteId);
+
+        // 정책값 (없으면 기본값)
+        const entryGraceMinutes = policyConfig.graceTimeMinutes || 10;       // 입차 회차 (예: 10분)
+        const settlementGraceMinutes = policyConfig.settlementGraceMinutes || 20; // 정산 후 회차 (예: 20분)
+
+        // -------------------------------------------------------------
+        // [Logic 1] 입차 후 회차 (Entry Grace Time)
+        // -------------------------------------------------------------
+        // 실제 흐른 시간 계산
+        const realDurationMs = Math.max(0, end.getTime() - start.getTime());
+        const realDurationMinutes = Math.floor(realDurationMs / 60000);
+
+        logger.info(`[Fee] 요금 계산 시작: ${realDurationMinutes}분 (Type: ${vehicleType})`);
+
+        // "그냥 지금 나가면 무료인가?" 체크
+        if (entryGraceMinutes > 0 && realDurationMinutes <= entryGraceMinutes) {
+            return { 
+                totalFee: 0, discountAmount: 0, finalFee: 0, 
+                durationMinutes: realDurationMinutes, 
+                isGracePeriod: true // 입차 회차임
+            };
+        }
 
         // 3. [Case A] 정기권 회원 (무료)
         // vehicleType이 MEMBER면 요금 0원 처리
@@ -35,29 +50,37 @@ class FeeService {
                 totalFee: 0, 
                 discountAmount: 0, 
                 finalFee: 0, 
-                durationMinutes, 
+                realDurationMinutes, 
                 isGracePeriod: false 
             };
         }
 
-        // 4. [Case B] 회차 시간(Grace Time) 이내 (무료)
-        // 예: 10분 이내 회차 무료
-        if (policyConfig.graceTimeMinutes && durationMinutes <= policyConfig.graceTimeMinutes) {
-            logger.info(`[Fee] 회차 시간 이내 출차 (${durationMinutes}분 <= ${policyConfig.graceTimeMinutes}분)`);
-            return { 
-                totalFee: 0, 
-                discountAmount: 0, 
-                finalFee: 0, 
-                durationMinutes, 
-                isGracePeriod: true 
-            };
+        // -------------------------------------------------------------
+        // [Logic 2] 정산 후 회차 (Settlement Grace Time)
+        // - 사전 정산(앱/키오스크) OR 출차 정산(Gate) 모두 포함
+        // -------------------------------------------------------------
+        let isSettlementGrace = false;
+
+        if (preSettledAt) {
+            const settledTime = new Date(preSettledAt);
+            const timeSinceSettlement = end.getTime() - settledTime.getTime();
+            const minutesSinceSettlement = Math.floor(timeSinceSettlement / 60000);
+
+            // 정산한 지 N분 안 지났으면? -> 요금 계산 시점을 '정산 시점'으로 고정(Freeze)
+            if (minutesSinceSettlement <= settlementGraceMinutes) {
+                end = settledTime; 
+                isSettlementGrace = true;
+            }
+            // 시간을 넘겼으면? -> end는 '현재 시간' 그대로 유지 (추가 요금 발생)
         }
+
+   
 
         // 5. [Case C] 요금 계산 (일자별 반복 로직) 
         // 하루(1440분) 단위로 쪼개서 계산
         const minutesInDay = 1440;
-        const days = Math.floor(durationMinutes / minutesInDay);
-        const remainingMinutes = durationMinutes % minutesInDay;
+        const days = Math.floor(realDurationMinutes / minutesInDay);
+        const remainingMinutes = realDurationMinutes % minutesInDay;
 
         let totalFee = 0;
         const dailyMaxFee = policyConfig.dailyMaxFee || 0; // 일일 최대 요금 (없으면 0)
@@ -92,8 +115,8 @@ class FeeService {
             totalFee: totalFee,
             discountAmount: 0, // 여기서는 0, 추후 할인 적용 단계에서 계산
             finalFee: totalFee,
-            durationMinutes: durationMinutes,
-            isGracePeriod: false
+            durationMinutes: realDurationMinutes,
+            isGracePeriod: isSettlementGrace
         };
     }
 

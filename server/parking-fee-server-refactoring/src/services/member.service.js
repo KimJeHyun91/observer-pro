@@ -291,20 +291,24 @@ class MemberService {
     }
 
     /**
-     * [추가] LPR 서비스용: 차량 번호로 회원 조회
+     * [LPR용] 차량 번호로 회원 정보 및 현재 유효한 멤버십 상태 조회
+     * @param {string} siteId 
+     * @param {string} carNumber 
      */
     async findMemberByCarNumber(siteId, carNumber) {
-        // Repository의 메서드 활용
+        // 1. 회원 기본 정보 조회
         const member = await this.memberRepository.findByCarNumber(siteId, carNumber);
         
-        // 회원이 없으면 null 반환
-        if (!member) return null;
+        // 회원이 아니면 null 반환
+        if (!member) {
+            return null;
+        }
 
-        // 현재 멤버십 상태까지 포함해서 반환하고 싶다면:
-        // (단, LPR 성능을 위해 멤버십 계산이 필요 없다면 그냥 member만 리턴해도 됨)
-        // 여기서는 멤버십 유효 여부를 판단해야 하므로 이력을 조회해서 합쳐줌
+        // 2. 해당 회원의 모든 결제(멤버십) 이력 조회
+        // (최적화를 위해 findAllByMemberIds 사용)
         const histories = await this.memberPaymentHistoryRepository.findAllByMemberIds([member.id]);
-        
+
+        // 3. 현재 유효한 멤버십 여부 판단 및 병합
         return this._enrichMemberWithStatus(member, histories);
     }
 }

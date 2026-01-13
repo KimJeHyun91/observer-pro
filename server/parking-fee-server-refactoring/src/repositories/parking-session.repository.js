@@ -181,7 +181,7 @@ class ParkingSessionRepository {
         const values = [];
         let paramIndex = 1;
 
-        const { startTime, endTime, ...otherFilters } = filters;
+        const { startTime, endTime, statuses, ...otherFilters } = filters;
 
         // "기간 내에 입차했거나" OR "기간 내에 출차했거나"
         if (startTime || endTime) {
@@ -213,6 +213,14 @@ class ParkingSessionRepository {
             if (timeConditions.length > 0) {
                 whereClauses.push(`(${timeConditions.join(' AND ')})`);
             }
+        }
+
+        // 2. [수정됨] Statuses 배열 검색 처리
+        // 클라이언트가 보낸 'statuses' 배열을 DB의 'status' 컬럼과 비교
+        if (statuses && statuses.length > 0) {
+            whereClauses.push(`s.status = ANY($${paramIndex})`);
+            values.push(statuses); // ['PENDING', 'PENDING_ENTRY']
+            paramIndex++;
         }
 
         // 2. [나머지 필터] 자동 매핑 (carNumber, siteId, status, entrySource, exitSource 등)
@@ -288,6 +296,29 @@ class ParkingSessionRepository {
         `;
         const { rows } = await pool.query(query, [laneId]);
         return rows[0] ? humps.camelizeKeys(rows[0]) : null;
+    }
+
+    /**
+     * [New] 차선 ID로 'INTEGRATED_GATE' 장비의 설치 위치(location) 조회
+     */
+    async findGateLocationByLaneId(laneId) {
+        if (!laneId) return null;
+
+        const query = `
+            SELECT location 
+            FROM pf_devices 
+            WHERE lane_id = $1 
+              AND type = 'INTEGRATED_GATE'
+            LIMIT 1
+        `;
+        
+        try {
+            const { rows } = await pool.query(query, [laneId]);
+            return rows[0] ? rows[0].location : null;
+        } catch (error) {
+            console.error(`[Repo] findGateLocationByLaneId Error:`, error);
+            return null;
+        }
     }
 }
 

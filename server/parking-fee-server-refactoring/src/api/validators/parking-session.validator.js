@@ -16,11 +16,45 @@ exports.validateList = [
     query('entrySource').optional().trim(),
     query('exitSource').optional().trim(),
     
-    query('status')
+    query('statuses')
         .optional()
-        .toUpperCase()
-        .isIn(['PENDING', 'PRE_SETTLED', 'PAYMENT_PENDING', 'COMPLETED', 'CANCELLED', 'RUNAWAY'])
-        .withMessage('유효하지 않은 상태값입니다.'),
+        .customSanitizer((value) => {
+            // 1. 이미 배열인 경우 (?statuses=A&statuses=B)
+            if (Array.isArray(value)) {
+                return value.map(v => v.trim().toUpperCase());
+            }
+            // 2. 콤마로 구분된 문자열인 경우 (?statuses=A,B)
+            if (typeof value === 'string') {
+                return value.split(',').map(v => v.trim().toUpperCase());
+            }
+            // 3. 단일 값인 경우
+            return [value.trim().toUpperCase()];
+        })
+        .custom((value) => {
+            // value는 위 로직에 의해 무조건 배열([])입니다.
+            const allowedStatuses = [
+                'PENDING', 'PRE_SETTLED', 'PAYMENT_PENDING', 
+                'COMPLETED', 'CANCELLED', 'RUNAWAY', 
+                'PENDING_ENTRY', 'PENDING_EXIT', 
+                'FORCE_COMPLETED', 'UNRECOGNIZED'
+            ];
+            
+            // 배열 내 모든 값이 유효한지 검사
+            const isValid = value.every(s => allowedStatuses.includes(s));
+            
+            if (!isValid) {
+                throw new Error(`유효하지 않은 상태값이 포함되어 있습니다. 허용값: ${allowedStatuses.join(', ')}`);
+            }
+            return true;
+        }),
+
+    query('entryLaneId')
+        .optional()
+        .isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
+    
+    query('exitLaneId')
+        .optional()
+        .isUUID().withMessage('exitLaneId는 UUID여야 합니다.'),
 
     // 페이징
     query('page').optional().isInt({ min: 1 }).withMessage('page는 1 이상이어야 합니다.'),
@@ -33,7 +67,19 @@ exports.validateList = [
 exports.validateDetail = [
     param('id')
         .notEmpty().withMessage('Session ID는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.')
+        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+
+    // [추가] isMain
+    query('isMain')
+        .notEmpty().withMessage('isMain은 필수값입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    query('direction')
+        .notEmpty().withMessage('direction은 필수값입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.')
 ];
 
 /**
@@ -41,6 +87,19 @@ exports.validateDetail = [
  * - ID 파라미터 없음 (신규 생성)
  */
 exports.validateCreate = [
+
+        // [추가] isMain
+    body('isMain')
+        .notEmpty().withMessage('isMain은 필수입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    body('direction')
+        .notEmpty().withMessage('direction은 필수입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
+
     // [필수] 사이트 및 차량 정보
     body('siteId')
         .notEmpty().withMessage('siteId는 필수입니다.')
@@ -90,6 +149,19 @@ exports.validateCreate = [
  * - ID 파라미터 없음 (신규 생성)
  */
 exports.validateEntry = [
+
+        // [추가] isMain
+    body('isMain')
+        .notEmpty().withMessage('isMain은 필수입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    body('direction')
+        .notEmpty().withMessage('direction은 필수입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
+
     // [필수] 사이트 및 차량 정보
     body('siteId')
         .notEmpty().withMessage('siteId는 필수입니다.')
@@ -146,6 +218,18 @@ exports.validateExit = [
         .notEmpty().withMessage('Session ID는 필수입니다.')
         .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
 
+        // [추가] isMain
+    body('isMain')
+        .notEmpty().withMessage('isMain은 필수입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    body('direction')
+        .notEmpty().withMessage('direction은 필수입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
+
     // [필수] 출차 시간
     body('exitTime')
         .optional()
@@ -176,6 +260,18 @@ exports.validateExit = [
 exports.validateDiscount = [
     param('id').notEmpty().isUUID(),
 
+        // [추가] isMain
+    body('isMain')
+        .notEmpty().withMessage('isMain은 필수입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    body('direction')
+        .notEmpty().withMessage('direction은 필수입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
+
     // [변경] 단일 ID -> ID 배열
     body('policyId')
         .notEmpty().withMessage('policyId는 필수입니다.')
@@ -193,6 +289,18 @@ exports.validateUpdateInfo = [
     param('id')
         .notEmpty().withMessage('Session ID는 필수입니다.')
         .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+
+        // [추가] isMain
+    body('isMain')
+        .notEmpty().withMessage('isMain은 필수입니다.')
+        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .toBoolean(),
+
+    // [추가] direction (상세 조회 시점 선택)
+    body('direction')
+        .notEmpty().withMessage('direction은 필수입니다.')
+        .toUpperCase() // 소문자로 들어와도 대문자로 변환
+        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
 
     // 수정 가능한 필드들
     body('carNumber')

@@ -193,14 +193,15 @@ class ParkingProcessService {
             siteId,
             zoneId,
             laneId,
-            locationName,
-            direction, // "IN" or "OUT" (LPR 데이터에 포함되어 있다고 가정)
+            location,
+            direction,
             eventTime,
             imageUrl,
             isMember,
             isBlacklist,
-            ip,
-            port  
+            deviceIp,
+            devicePort,
+            deviceControllerId
         } = data;
 
         logger.info(`[Process:Exit] 출차 시도: ${carNumber}`);
@@ -212,8 +213,6 @@ class ParkingProcessService {
                 const lane = await this.laneRepository.findById(laneId);
                 if (lane) exitLaneName = lane.name;
             }
-
-            console.log('4444444444444444444' + siteId + '  ' + carNumber);
 
             // 1. 활성 세션(입차 기록) 조회
             let session = await this.sessionRepository.findActiveSession(siteId, carNumber);
@@ -249,19 +248,41 @@ class ParkingProcessService {
             const feeResult = await this.feeService.calculate({
                 entryTime: session.entryTime,
                 exitTime: eventTime,
+                preSettledAt: session.preSettledAt,
                 vehicleType: session.vehicleType,
                 siteId: siteId
             });
 
+            // [Fix 1] 퍼센트 할인 재계산 로직 추가
+            // 시간이 흘러 TotalFee가 변했으므로, 비율(%) 할인은 금액을 다시 계산해야 함
+            let recalculatedDiscountFee = 0;
+            let appliedDiscounts = session.appliedDiscounts || [];
+
+            if (appliedDiscounts.length > 0) {
+                appliedDiscounts = appliedDiscounts.map(d => {
+                    // POLICY 타입이면서 PERCENT인 경우 재계산
+                    if (d.type === 'POLICY' && d.discountType === 'PERCENT') {
+                        const newAmount = Math.floor(feeResult.totalFee * (d.value / 100));
+                        recalculatedDiscountFee += newAmount;
+                        return { ...d, amount: newAmount };
+                    } 
+                    // 정액권 등은 기존 금액 유지
+                    recalculatedDiscountFee += (d.amount || 0);
+                    return d;
+                });
+            }
+
+
             // [수정 핵심 1] 잔여 요금(미납금) 계산
             // 총 요금 - (할인 합계 + 기납부 요금)
-            const totalDiscount = (session.discountFee || 0) + feeResult.discountAmount; // 기존 할인 + 신규 할인(감면 등)
+            const totalDiscount = recalculatedDiscountFee + (feeResult.discountAmount || 0);
             const alreadyPaid = session.paidFee || 0;
 
             const remainingFee = Math.max(0, feeResult.totalFee - totalDiscount - alreadyPaid);
 
-            // 5. 차단기 개방 여부 판단 (0원일 때만 자동 개방)
-            const shouldOpenGate = (feeResult.finalFee === 0);
+            // [Fix 3] 차단기 개방 조건 수정 (잔여 요금이 없으면 개방)
+            // feeResult.finalFee(총요금)가 아니라 remainingFee(낼 돈)를 봐야 함
+            const shouldOpenGate = (remainingFee === 0);
 
             // ★ [수정] 상태 결정 로직
             // - 돈을 다 냈으면(0원) -> 'PENDING_EXIT' (나가세요, 차단기 통과 대기)
@@ -294,7 +315,23 @@ class ParkingProcessService {
                 await this._triggerOpenGate(data.deviceControllerId, data.locationName);
             } else {
                 logger.info(`[Process:Exit] 과금 출차 대기: ${carNumber} (요금 ${feeResult.finalFee}원)`);
-                // 여기서 정산기 화면에 요금을 띄우는 명령을 보낼 수도 있음 (PlsService 레벨에서 처리 권장)
+
+                // [Fix 4] 출구 정산기에 요금 정보 전송 (필수)
+                // AdapterFactory를 통해 PLS Adapter의 sendPaymentInfo 호출
+                if (data.deviceControllerId) {
+                    const adapter = await AdapterFactory.getAdapter(data.deviceControllerId);
+                    // LPR 데이터에 있는 장비 IP/Port가 보통 정산기 IP/Port와 동일하다고 가정하거나,
+                    // 별도 매핑된 정산기 IP를 찾아야 함. 여기서는 data.ip를 타겟으로 가정.
+                    await adapter.sendPaymentInfo({
+                        location: location,
+                        targetIp: deviceIp, 
+                        targetPort: devicePort,
+                        carNumber: carNumber,
+                        parkingFee: remainingFee, // 남은 돈만 청구
+                        inTime: session.entryTime,
+                        outTime: eventTime
+                    }).catch(e => logger.error(`[Process:Exit] 요금 전송 실패: ${e.message}`));
+                }
             }
 
             let vehicleTypeName = '';
@@ -320,20 +357,20 @@ class ParkingProcessService {
             const socketPayload = {
                 direction: 'OUT',
                 siteId: siteId,
-                deviceIp: ip || null,     // 차단기/LPR IP
-                devicePort: port || null, // 포트
+                deviceIp: deviceIp || null,     // 차단기/LPR IP
+                devicePort: devicePort || null, // 포트
                 imageUrl: imageUrl,
                 eventTime: eventTime,      // 입차 인식 시각
                 
-                location: locationName,
+                location: location,
                 
                 carNumber: carNumber,
                 
                 // 입차 시점 금액 정보 (0원)
-                totalFee: 0,
-                discountPolicyIds: [],
-                discountFee: 0,
-                preSettledFee: 0,
+                totalFee: feeResult.totalFee,
+                discountPolicyIds: appliedDiscounts.map(d => d.policyId),
+                discountFee: totalDiscount,
+                preSettledFee: alreadyPaid,
                 
                 isBlacklist: isBlacklist,
 
@@ -470,6 +507,78 @@ class ParkingProcessService {
         } catch (error) {
             logger.error(`[Gate] 상태 확정 처리 중 오류: ${error.message}`);
         }
+    }
+
+    /**
+     * [사전 정산] 차량 번호 뒷자리로 차량 검색 및 현재 요금 계산
+     * @param {string} searchKey - 차량번호 4자리
+     * @param {string} siteId
+     */
+    async searchCarsByRearNumber(siteId, searchKey) {
+        // 1. 활성 세션 중 뒷자리가 일치하는 차량 검색 (Repository 기능 필요)
+        // SQL 예시: WHERE site_id = $1 AND car_number LIKE '%' || $2 AND status IN (...)
+        const sessions = await this.sessionRepository.findActiveSessionsBySearchKey(siteId, searchKey);
+        
+        const results = [];
+        const now = new Date();
+
+        // 2. 각 차량별 현재 기준 요금 계산 (미리 보여줘야 하므로)
+        for (const session of sessions) {
+            const feeResult = await this.feeService.calculate({
+                entryTime: session.entryTime,
+                exitTime: now,
+                preSettledAt: session.preSettledAt, // 기존 정산 이력 반영
+                vehicleType: session.vehicleType,
+                siteId: siteId
+            });
+
+            // 할인 등 적용 후 최종 사용자 부담금 계산
+            const totalDiscount = (session.discountFee || 0) + feeResult.discountAmount;
+            const alreadyPaid = session.paidFee || 0;
+            const remainingFee = Math.max(0, feeResult.totalFee - totalDiscount - alreadyPaid);
+
+            results.push({
+                carNumber: session.carNumber,
+                entryTime: session.entryTime,
+                totalFee: remainingFee, // 남은 요금만 표시
+                entryImageUrl: session.entryImageUrl
+            });
+        }
+
+        return results;
+    }
+
+    /**
+     * [공통] 결제 완료 처리 (DB 반영)
+     * - PLS로부터 PARK_FEE_DONE 수신 시 호출
+     */
+    async applyPayment(paymentData) {
+        const { carNumber, paidFee, paymentDetails, siteId } = paymentData;
+
+        // 1. 차량 조회
+        const session = await this.sessionRepository.findActiveSession(siteId, carNumber);
+        if (!session) {
+            logger.warn(`[Payment] 결제 차량 세션 없음: ${carNumber}`);
+            return;
+        }
+
+        // 2. 정산 시간 갱신 (중요: 정산 후 회차 시간 적용을 위해)
+        const now = new Date();
+        const currentPaid = session.paidFee || 0;
+        const newTotalPaid = currentPaid + paidFee;
+
+        // 3. DB 업데이트
+        await this.sessionRepository.update(session.id, {
+            paidFee: newTotalPaid,
+            preSettledAt: now, // 정산 시점 갱신 -> FeeService가 이 시간을 기준으로 유예 처리
+            
+            // 결제 상세 정보 로그 저장 (선택 사항 - 별도 테이블 권장하지만 여기선 note 등에 요약)
+            note: (session.note || '') + ` /[결제] ${paidFee}원(${paymentDetails.paytime})`
+        });
+
+        logger.info(`[Payment] 결제 반영 완료: ${carNumber}, 금액: ${paidFee}`);
+        
+        // (옵션) 전액 결제 시 소켓으로 '결제완료' 상태 전송 가능
     }
 }
 

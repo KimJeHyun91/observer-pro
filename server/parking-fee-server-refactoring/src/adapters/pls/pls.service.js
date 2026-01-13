@@ -1,176 +1,197 @@
 const DeviceService = require('../../services/device.service');
 const MemberService = require('../../services/member.service');
 const BlacklistService = require('../../services/blacklist.service');
-const alertService = require('../../services/alert.service'); // 싱글톤 인스턴스
-const parkingProcessService = require('../../services/parking-process.service'); // 싱글톤 인스턴스
-const debounceService = require('../../services/debounce.service'); // 싱글톤 인스턴스
-const AdapterFactory = require('../../adapters/adapter.factory');
+const AlertService = require('../../services/alert.service');            
+const ParkingProcessService = require('../../services/parking-process.service'); 
+const DebounceService = require('../../services/debounce.service');       
+const AdapterFactory = require('../../adapters/adapter.factory');  
 const logger = require('../../../../logger');
 
+/**
+ * ==============================================================================
+ * PLS Service
+ * ------------------------------------------------------------------------------
+ * 역할: 
+ * 1. Controller로부터 전달받은 장비 데이터를 가공합니다.
+ * 2. 장비 위치(Location)를 기반으로 DB의 Site/Lane 정보를 조회(Context Resolve)합니다.
+ * 3. 핵심 입출차 로직은 ParkingProcessService에 위임합니다.
+ * 4. 결과에 따라 AdapterFactory를 통해 물리 장비(차단기, 전광판)를 제어합니다.
+ * ==============================================================================
+ */
 class PlsService {
 
     constructor() {
-        // [수정] 클래스형 서비스들은 여기서 인스턴스화하여 사용 (의존성 관리)
         this.deviceService = new DeviceService();
         this.memberService = new MemberService();
         this.blacklistService = new BlacklistService();
+        this.alertService = new AlertService();
+        this.processService = new ParkingProcessService();
+        this.debounceService = new DebounceService();
     }
 
     /**
-     * LPR 데이터 처리 메인 로직
+     * 1. LPR 데이터 처리 메인 로직
      * @param {Object} lprRawData - PLS 장비로부터 수신한 Raw Data
      */
     async processLprData(lprRawData) {
-        // 1. 데이터 추출 (Snake Case -> Camel Case 변환 및 가공)
-        const { 
-            lp, location, ip, port,
-            fname, folder_name, image_url_header, loop_event_time, 
-            direction // 필요시 사용
+        const {
+            ip,
+            port,          
+            lp,
+            direction,
+            location,
+            fname,
+            folder_name,
+            image_url_header,
+            loop_event_time
         } = lprRawData;
 
-        // 차량번호 공백 제거 및 '미인식' 처리
+        // 1. 데이터 정제
         const carNumber = lp ? lp.replace(/\s/g, '') : '미인식';
-    
-            
-        const eventDate = loop_event_time ? new Date(loop_event_time) : new Date();
-
-        // 2. [Context 조회] 장비 위치(Location)를 기반으로 Site, Zone, Lane 정보 조회
-        const context = await this._resolveLocationContext(location);
-        
-        if (!context) {
-            logger.warn(`[LPR] 등록되지 않은 장비(Location)입니다: ${location}`);
-            return;
-        }
-
-        const { siteId, zoneId, laneId, deviceIp, devicePort, deviceControllerId, deviceControllerIp, deviceControllerPort } = context;
-
-        // 이미지 주소 변환
-        const imageUrl = 'http://' + deviceControllerIp + ':' + deviceControllerPort + image_url_header + folder_name + '/' + fname;
-
-        // 3. [Debounce] 중복 요청 방지 (5초)
-        const safeSiteId = siteId || 'UNKNOWN';
-        const debounceKey = `LPR:${safeSiteId}:${location}:${carNumber}`;
-        
-        if (!debounceService.canProcess(debounceKey, 5000)) {
-            logger.warn(`[LPR] 중복 요청 감지됨 (무시): ${carNumber} @ ${location}`);
-            return;
-        }
-
-        logger.info(`[LPR] 차량 인식 시작: ${carNumber} @ ${location}`);
+        const eventTime = loop_event_time ? new Date(loop_event_time) : new Date();
 
         try {
-            // 4. [Alert] 미인식 차량 알림
+
+            // 2. [Context 조회] 장비 위치(Location)를 기반으로 Site, Zone, Lane 정보 조회
+            const context = await this._resolveLocationContext(location);
+
+            if (!context) {
+                logger.warn(`[LPR] 등록되지 않은 장비(Location)입니다: ${location} (IP: ${ip})`);
+                return;
+            }
+
+            const { 
+                siteId, 
+                zoneId, 
+                laneId, 
+                deviceIp, 
+                devicePort, 
+                deviceControllerId, 
+                deviceControllerIp, 
+                deviceControllerPort 
+            } = context;
+
+            // 이미지 전체 URL 조립
+            const imageUrl = `http://${deviceControllerIp}:${deviceControllerPort}${image_url_header}${folder_name}/${fname}`;
+
+            // 3. [Debounce] 중복 요청 방지 (동일 장비, 동일 차량 5초 내 재진입 무시)
+            const safeSiteId = siteId || 'UNKNOWN';
+            const debounceKey = `LPR:${safeSiteId}:${location}:${carNumber}`;
+
+            if (!this.debounceService.canProcess(debounceKey, 5000)) {
+                logger.warn(`[LPR] 중복 요청 감지됨 (무시): ${carNumber} @ ${location}`);
+                return;
+            }
+
+            logger.info(`[LPR] 차량 인식 시작: ${carNumber} @ ${location}`);
+
+            // 4. [Alert] 미인식 차량 처리 (알림만 보내고 프로세스는 계속 진행)
             if (carNumber === '미인식' || carNumber === 'Unknown') {
-                await alertService.sendAlert({
-                    type: alertService.Types.LPR_ERROR, // Enum 사용
+                await this.alertService.sendAlert({
+                    type: this.alertService.Types.LPR_ERROR,
                     message: `차량 번호 미인식 발생 (${location})`,
                     siteId: siteId,
-                    data: { location, imageUrl, eventTime: eventDate }
+                    data: { location, imageUrl, eventTime }
                 });
-                // 미인식이라도 입차 처리는 시도할지 정책 결정 (보통은 관리자 확인 필요하므로 차단기 안 엶)
-                // 여기서는 계속 진행하여 '미인식'으로 입차 기록을 남김
             }
 
             // 5. [Blacklist] 블랙리스트 체크
             let isBlacklist = false;
             if (siteId) {
-                const isBlacklisted = await this.blacklistService.checkBlacklist(siteId, carNumber);
-                if (isBlacklisted) {
-                    logger.warn(`[LPR] 블랙리스트 차량 진입 시도: ${carNumber}`);
-                    isBlacklist = true;
+                isBlacklist = await this.blacklistService.checkBlacklist(siteId, carNumber);
+                if (isBlacklist) {
+                    logger.warn(`[LPR] 🚨 블랙리스트 차량 진입 시도: ${carNumber}`);
                     
-                    // 알림 전송
-                    // await alertService.sendAlert({
-                    //     type: alertService.Types.BLACKLIST_DETECTED,
-                    //     message: `🚨 블랙리스트 차량 발견: ${carNumber}`,
-                    //     siteId,
-                    //     data: { carNumber, location, imageUrl }
-                    // });
-                    
-                    // LED: 출입금지 표시
-                    // await this._sendLedMessage(deviceControllerId, location, {
-                    //     text1: '출입금지', text2: '관리자문의', color1: 'RED', color2: 'RED'
-                    // });
-                    
-                    return; // 로직 종료 (차단기 개방 안 함)
+                    // 알림 전송 후 차단기 개방
+                    await this.alertService.sendAlert({
+                        type: this.alertService.Types.BLACKLIST_DETECTED,
+                        message: `블랙리스트 차량 발견: ${carNumber}`,
+                        siteId,
+                        data: { carNumber, location, imageUrl }
+                    });
                 }
             }
 
-            // 6. [Member] 정기권/회원 여부 확인
+            // 6. [Member] 정기권/회원 여부 확인 & LED 안내
             let isMember = false;
-            let memberId = null;
-
             if (siteId && carNumber !== '미인식') {
                 const member = await this.memberService.findMemberByCarNumber(siteId, carNumber);
                 
-                // [수정] member 객체는 순수 데이터이므로 메서드(.isValid)가 없음.
-                // 대신 isActive 필드와 현재 멤버십 상태(currentMembership.status)를 확인
-                const isActiveMember = member && 
-                                       member.isActive && 
-                                       (member.currentMembership.status === 'ACTIVE' || member.currentMembership.status === 'EXPIRING');
+                // 멤버십 상태가 유효한지 확인
+                const isActiveMember = member && member.isActive && 
+                                     (member.currentMembership?.status === 'ACTIVE' || member.currentMembership?.status === 'EXPIRING');
 
                 if (isActiveMember) {
                     isMember = true;
-                    memberId = member.id;
-                    
-                    // LED: 환영 메시지
+                    // LED: 정기권 환영
                     await this._sendLedMessage(deviceControllerId, location, {
                         text1: '반갑습니다', text2: '정기권차량', color1: 'GREEN', color2: 'GREEN'
                     });
                 } else {
-                    // LED: 일반 방문 메시지
+                    // LED: 일반 방문
                     await this._sendLedMessage(deviceControllerId, location, {
                         text1: '어서오세요', text2: carNumber, color1: 'YELLOW', color2: 'YELLOW'
                     });
                 }
             } else {
-                // 사이트 정보가 없거나 미인식인 경우 기본 메시지
+                // 비회원/미인식 LED
                  await this._sendLedMessage(deviceControllerId, location, {
                     text1: '어서오세요', text2: '방문객', color1: 'YELLOW', color2: 'YELLOW'
                 });
             }
 
-            // 7. [Process] 입출차 비즈니스 로직 위임 (세션 생성/종료, 요금 계산 등)
-            // ParkingProcessService가 성공/실패 및 차단기 개방 여부를 판단해줌
-            const processResult = await parkingProcessService.processEntryExit({
+            // 7. [Process] 입출차 핵심 로직 위임 (세션 생성/종료, 요금 계산, DB 저장)
+            const processResult = await this.processService.processEntryExit({
                 carNumber,
                 siteId,
                 zoneId,
                 laneId,
-                locationName: location,
-                direction, // "IN" or "OUT" (LPR 데이터에 포함되어 있다고 가정)
-                eventTime: eventDate,
+                location,
+                direction,
+                eventTime,
                 imageUrl,
                 isMember,
                 isBlacklist,
-                ip: deviceIp,
-                port: devicePort
+                deviceIp,
+                devicePort,
+                deviceControllerId
             });
 
-            console.log('33333333333333333333333333', {processResult});
+            logger.info(`[LPR] Process Result: Success=${processResult.success}, OpenGate=${processResult.shouldOpenGate}`);
 
             // 8. [Control] 차단기 제어 (Process 결과에 따름)
             if (processResult.success && processResult.shouldOpenGate) {
                 logger.info(`[LPR] 차단기 개방 요청: ${location}`);
                 
+                // 팩토리를 통해 어댑터 획득 후 제어
                 const adapter = await AdapterFactory.getAdapter(deviceControllerId);
-                await adapter.openGate(location); // 어댑터를 통해 하드웨어 제어
+                await adapter.openGate(location);
+                
             } else {
                 logger.info(`[LPR] 차단기 미개방 (사유: ${processResult.message})`);
+                
+                // 출차인데 미개방인 경우 (요금 미납 등) 안내 메시지
+                if (direction === 'OUT' && !processResult.shouldOpenGate) {
+                     await this._sendLedMessage(deviceControllerId, location, {
+                        text1: '요금정산필요', text2: '정산해주세요', color1: 'RED', color2: 'RED'
+                    });
+                }
             }
 
         } catch (error) {
-            logger.error(`[LPR Service] 처리 중 치명적 오류: ${error.message}`);
-            // 시스템 에러 알림 전송 가능
+            logger.error(`[PlsService] LPR 처리 중 오류: ${error.message}`);
         }
     }
 
+    /**
+     * 2. 차단기 상태 변경 이벤트 처리
+     * - 차단기가 완전히 내려갔을 때(down) 입/출차 세션을 '완료' 상태로 확정
+     */
     async updateGateStatus(rawData) {
         const { location, status, ip, port, loop_event_time } = rawData;
 
         try {
-            // 1. DeviceService로부터 조회된 Raw 데이터 받기
-            // 반환값 예시: { deviceId: 1, siteId: 2, zoneId: 3, laneId: 4, direction: 'IN', ... }
+            // 1. Context 조회
             const deviceContext = await this.deviceService.findOneByLocation(location);
 
             if (!deviceContext) {
@@ -180,103 +201,118 @@ class PlsService {
 
             const { laneId } = deviceContext;
 
-            // 2. [추가] 차단기가 내려갔다면(down), 세션 상태 확정 로직 호출
+            // 2. 차단기가 내려갔다면(down), 세션 상태 확정 로직 호출
             if (status === 'down') {
-                logger.info(`[PLS] 차단기 닫힘 감지 -> 세션 상태 확정 시도 (${location})`);
+                logger.info(`[Gate] 차단기 닫힘(Down) 감지 -> 세션 상태 확정 시도 (${location})`);
                 
-                // ParkingSessionService 호출 (순환 참조 주의: 필요시 require를 함수 내부에서 하거나 구조 조정)
-                // 보통은 Service끼리 호출해도 괜찮지만, 구조에 따라 AdapterFactory처럼 분리할 수도 있음.
-                // 여기서는 직접 호출 가정:
-                await parkingProcessService.confirmGatePassage(laneId, loop_event_time);
+                // 해당 차선의 대기 중인 세션을 완료 처리
+                await this.processService.confirmGatePassage(laneId, loop_event_time);
             }
-            
-            // 2. [여기서 추출!] 필요한 데이터만 골라서 소켓 Payload 구성
-            const socketPayload = {                
-                // DeviceService가 준 객체에서 필요한 것만 꺼내 씀
-                siteId: deviceContext.siteId,
-                zoneId: deviceContext.zoneId,
-                laneId: deviceContext.laneId,
-                deviceId: deviceContext.deviceId,
-                direction: deviceContext.direction || 'UNKNOWN',
-                
-                // 장비가 보낸 원본 데이터
-                deviceIp: ip,
-                devicePort: port,
-                location: location,
-                status: status, 
-                eventTime: loop_event_time
-            };
 
-            // 3. 소켓 전송
+            // 3. 웹소켓 전송 (관제 UI 갱신용)
             if (global.websocket) {
+                const socketPayload = {                
+                    siteId: deviceContext.siteId,
+                    zoneId: deviceContext.zoneId,
+                    laneId: deviceContext.laneId,
+                    deviceId: deviceContext.deviceId,
+                    direction: deviceContext.direction || 'UNKNOWN',
+                    deviceIp: deviceContext.deviceIp,
+                    devicePort: deviceContext.devicePort,
+                    location: location,
+                    status: status, 
+                    eventTime: loop_event_time
+                };
+                
                 global.websocket.emit("pf_gate_state-update", { gateState: { 'data': socketPayload }});
             }
 
         } catch (error) {
-            logger.error(`[Gate] Error: ${error.message}`);
+            logger.error(`[Gate] 상태 처리 오류: ${error.message}`);
         }
     }
 
     /**
-     * 5. 결제 성공 처리 (정산기 -> 서버)
+     * 3. 결제 성공 처리 (정산기 -> 서버)
+     * - PLS에서 PARK_FEE_DONE 수신 시 호출
      */
-    async processPaymentSuccess(paymentData) {
-        const { carNumber, paidFee, paymentType, approvalNo, locationName } = paymentData;
-        logger.info(`[Payment] 결제 수신: ${carNumber}, 금액: ${paidFee}`);
+    async processPaymentSuccess(data) {
+        const { lp, paid_fee, location, ...details } = data;
 
-        // 1. 차량 조회 (현재 주차 중인 차량 찾기)
-        // const parkingSession = await parkingProcessService.findActiveSession(carNumber);
-        
-        // 2. 정산 반영 (DB 업데이트)
-        // await parkingProcessService.applyPayment(parkingSession.id, paidFee, paymentType, approvalNo);
+        // 위치 정보로 Context 조회 (siteId 필요)
+        const context = await this._resolveLocationContext(location);
+        if (!context) return;
 
-        // 3. 출구 정산기인 경우 차단기 개방 로직 추가 가능
-        // if (locationName.includes('출구')) { ... }
+        // 핵심 로직 위임
+        await this.processService.applyPayment({
+            siteId: context.siteId,
+            carNumber: lp,
+            paidFee: parseInt(paid_fee || 0),
+            paymentDetails: details
+        });
     }
 
     /**
-     * 6. 할인권 투입 처리
+     * 4. 할인권 투입 처리 (재계산 요청)
      */
     async processCouponInput(couponData) {
-        const { carNumber, couponCode, locationName } = couponData;
-        logger.info(`[Coupon] 할인권 투입: ${carNumber}, 코드: ${couponCode}`);
-
+        const { lp, couponCode, location } = couponData;
+        logger.info(`[Coupon] 할인권 투입: ${lp}, 코드: ${couponCode}`);
         // 1. 할인권 유효성 검증
         // 2. 할인 적용 및 잔여 요금 재계산
         // 3. 장비에게 재계산된 요금 전송 (장비 별도 API 호출 필요)
     }
 
     /**
-     * 7. 차량 번호 검색 (사전 무인 정산기)
+     * 5. [사전 정산] 차량 검색 요청 및 결과 전송
+     * - 키오스크에서 차량번호 4자리를 입력했을 때
      */
     async searchCarAndReply({ searchKey, targetLocation, targetIp, targetPort }) {
-        logger.info(`[Search] 차량 검색 요청: 번호판 뒤 4자리 '${searchKey}'`);
 
-        // 1. 차량 리스트 조회 (LIKE %searchKey)
-        // const carList = await parkingProcessService.searchCarsByRearNumber(searchKey);
+        try {
+            // Context 조회
+            const context = await this._resolveLocationContext(targetLocation);
+            if (!context) {
+                logger.warn(`[Search] 알 수 없는 장비 위치: ${targetLocation}`);
+                return; 
+            }
+            // 1. 차량 리스트 및 요금 조회 (ProcessService)
+            const carList = await this.processService.searchCarsByRearNumber(context.siteId, searchKey);
 
-        // 2. 장비 프로토콜에 맞춰 결과 전송
-        // 별도의 Adapter 혹은 Utility를 통해 UDP/TCP로 장비에게 리스트 전송
-        // await AdapterFactory.sendCarListToKiosk(targetIp, targetPort, carList);
+            // 2. 결과 전송 (Adapter 사용)
+            const adapter = await AdapterFactory.getAdapter(context.deviceControllerId);
+
+            await adapter.sendCarSearchResult({
+                targetKey: targetLocation,
+                targetIp: targetIp,
+                targetPort: targetPort,
+                carList: carList
+            });
+        } catch (error) {
+            logger.error(`[PlsService] 차량 검색 처리 실패: ${error.message}`);
+        }
     }
 
+    // =================================================================
+    // Helper Methods
+    // =================================================================
+
     /**
-     * [Helper] 위치 이름으로 Context(Site, Lane 등) 조회
+     * [Helper] 위치 이름(Location)으로 Context(Site, Lane, Controller 등) 조회
      */
     async _resolveLocationContext(locationName) {
-        // DeviceService에 구현된 findOneByLocation 활용
         const device = await this.deviceService.findOneByLocation(locationName);
         
         if (!device) return null;
-
-        console.log(`666666666666666666666666666: ${device.deviceIp} ${device.devicePort}`)
-
+        
         return {
             siteId: device.siteId,
             zoneId: device.zoneId,
             laneId: device.laneId,
+            // 장비 정보
             deviceIp: device.deviceIp,
             devicePort: device.devicePort,
+            // 제어기 정보
             deviceControllerId: device.deviceControllerId,
             deviceControllerIp: device.deviceControllerIpAddress,
             deviceControllerPort: device.deviceControllerPort
@@ -284,28 +320,28 @@ class PlsService {
     }
 
     /**
-     * [Helper] LED 전송 로직 (안전장치 포함)
-     * - Controller ID로 어댑터를 찾고, Location으로 LED 장비 IP를 찾아서 전송
+     * [Helper] LED 전송 로직
      */
-    async _sendLedMessage(controllerId, locationName, msgData) {
+    async _sendLedMessage(controllerId, location, msgData) {
+
         try {
             if (!controllerId) return;
 
-            // 1. 해당 위치(Location)에 매핑된 LED 장비 정보 조회 (IP, Port 필요)
-            // DeviceService에 findLedByLocation 메서드가 필요합니다. (이전 피드백 참조)
-            const ledDevice = await this.deviceService.findLedByLocation(locationName);
-            
+            // 1. 해당 위치(Location)에 매핑된 LED 장비 정보 조회
+            const ledDevice = await this.deviceService.findLedByLocation(location);
+
             if (!ledDevice) {
-                // LED 장비가 DB에 없으면 전송 포기 (에러 아님, 설정 문제)
-                logger.debug(`[PLS Service] LED 장비 미설정: ${locationName}`);
+                logger.debug(`[PlsService] LED 장비 미설정: ${location}`);
                 return;
             }
 
             // 2. 어댑터 가져오기
             const adapter = await AdapterFactory.getAdapter(controllerId);
             
-            // 3. 메시지 기본값 채우기
+            // 3. 메시지 데이터 병합
             const fullMessage = {
+                ip: ledDevice.ip, // LED 장비 실제 IP
+                port: ledDevice.port,
                 text1: msgData.text1 || '',
                 text2: msgData.text2 || '',
                 color1: msgData.color1 || 'GREEN',
@@ -313,17 +349,15 @@ class PlsService {
                 effect1: 'fixed',
                 effect2: 'fixed',
                 kind1: 'flash',
-                ...msgData // 덮어쓰기 허용
+                ...msgData
             };
 
-            // 4. 어댑터에 전송 요청 (LED 장비 정보 + 메시지)
-            await adapter.sendDisplay(locationName, ledDevice, fullMessage);
-
-        } catch (e) {
-            // LED 전송 실패는 핵심 로직(입차)을 방해하면 안 되므로 로그만 남김
-            logger.warn(`[LPR] LED 전송 실패 (${locationName}): ${e.message}`);
+            // 4. 어댑터에 전송 요청
+            await adapter.sendDisplay(location, fullMessage);
+        } catch (error) {
+            logger.warn(`[PlsService] LED 전송 실패 (${location}): ${error.message}`);
         }
     }
 }
 
-module.exports = new PlsService();
+module.exports = PlsService;
