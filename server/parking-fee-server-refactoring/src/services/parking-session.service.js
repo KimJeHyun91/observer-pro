@@ -14,7 +14,7 @@ class ParkingSessionService {
         this.laneRepository = new LaneRepository();
         this.policyRepository = new PolicyRepository();
         this.memberHistoryRepository = new MemberPaymentHistoryRepository();
-        this.feeService = FeeService;
+        this.feeService = new FeeService();
     }
 
     // 생성
@@ -44,7 +44,7 @@ class ParkingSessionService {
 
         let vehicleType = data.vehicleType || 'NORMAL';
 
-        const activeSession = await this.repository.findActiveSession(data.siteId, data.carNumber);
+        const activeSession = await this.repository.findParkingActiveSession(data.siteId, data.carNumber);
         
         if (activeSession) {
             // "입구에 차가 있다" = "기존 세션은 이미 출차했거나 오류다"
@@ -151,7 +151,7 @@ class ParkingSessionService {
         // -----------------------------------------------------------
         // [수정된 부분] 중복 입차(미출차 세션) 발생 시 무조건 자동 해결
         // -----------------------------------------------------------
-        const activeSession = await this.repository.findActiveSession(data.siteId, data.carNumber);
+        const activeSession = await this.repository.findParkingActiveSession(data.siteId, data.carNumber);
         
         if (activeSession) {
             // "입구에 차가 있다" = "기존 세션은 이미 출차했거나 오류다"

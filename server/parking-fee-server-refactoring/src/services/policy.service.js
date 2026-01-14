@@ -1,19 +1,27 @@
 const policyRepository = require('../repositories/policy.repository');
 const { initializeDefaults } = require('../seeds/policy.seed');
 const POLICY_CONFIG_KEYS = require('../../constants/policy-config.keys');
+const FeeService = require('../repositories/policy.repository');
+const logger = require('../../../logger');
 
 /**
+ * ==============================================================================
  * Policy Service
- * - 정책 관련 비즈니스 로직을 수행합니다.
+ * ------------------------------------------------------------------------------
+ * 역할:
+ * 1. 주차장 정책(요금, 할인, 정기권 등)의 CRUD 관리
+ * 2. 'FEE' 정책 변경 시 FeeService의 캐시를 무효화/갱신하여 실시간 반영 보장
+ * ==============================================================================
  */
 class PolicyService {
     constructor() {
         this.policyRepository = new policyRepository();
+        this.feeService = new FeeService();
     }
 
     /**
-     * 생성 (Create)
-     * - FEE(요금) 정책은 사이트당 1개만 생성 가능하도록 제한
+     * 정책 생성
+     * - [제약] 'FEE' 타입은 사용자가 직접 생성할 수 없음 (사이트 생성 시 자동 시딩됨)
      */
     async create(data) {
         if (data.config) {
@@ -138,7 +146,15 @@ class PolicyService {
         }
 
         // 3. 일반 수정 수행
-        return await this.policyRepository.update(id, data);
+        const updatedPolicy = await this.policyRepository.update(id, data);
+    
+        // 3. [Cache Invalidation] 요금 정책이 수정되었다면 캐시 갱신
+        if (updatedPolicy.type === 'FEE') {
+            logger.info(`[PolicyService] 요금 정책 수정됨. 캐시 갱신 요청 -> Site: ${updatedPolicy.siteId}`);
+            await this.feeService.reloadCache(updatedPolicy.siteId);
+        }
+
+        return updatedPolicy;
     }
 
     /**

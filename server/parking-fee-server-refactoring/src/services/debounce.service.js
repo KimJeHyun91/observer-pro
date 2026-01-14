@@ -46,4 +46,4 @@ class DebounceService {
     }
 }
 
-module.exports = new DebounceService();
+module.exports = DebounceService;

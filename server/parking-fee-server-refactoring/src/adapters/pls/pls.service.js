@@ -102,7 +102,7 @@ class PlsService {
                 if (isBlacklist) {
                     logger.warn(`[LPR] 🚨 블랙리스트 차량 진입 시도: ${carNumber}`);
                     
-                    // 알림 전송 후 차단기 개방
+                    // !! 구현 필요 알림 전송 후 차단기 개방
                     await this.alertService.sendAlert({
                         type: this.alertService.Types.BLACKLIST_DETECTED,
                         message: `블랙리스트 차량 발견: ${carNumber}`,
@@ -195,7 +195,7 @@ class PlsService {
             const deviceContext = await this.deviceService.findOneByLocation(location);
 
             if (!deviceContext) {
-                logger.warn(`[Gate] 알 수 없는 장비: ${location}`);
+                logger.warn(`[Gate] 알 수 없는 장비: ${rawData.gate_location}`);
                 return;
             }
 
@@ -248,7 +248,11 @@ class PlsService {
             siteId: context.siteId,
             carNumber: lp,
             paidFee: parseInt(paid_fee || 0),
-            paymentDetails: details
+            paymentDetails: details,
+            deviceControllerId: context.deviceControllerId,
+            location,
+            deviceIp: context.deviceIp,
+            devicePort: context.devicePort
         });
     }
 
@@ -300,8 +304,8 @@ class PlsService {
     /**
      * [Helper] 위치 이름(Location)으로 Context(Site, Lane, Controller 등) 조회
      */
-    async _resolveLocationContext(locationName) {
-        const device = await this.deviceService.findOneByLocation(locationName);
+    async _resolveLocationContext(location) {
+        const device = await this.deviceService.findOneByLocation(location);
         
         if (!device) return null;
         

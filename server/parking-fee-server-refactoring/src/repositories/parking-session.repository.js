@@ -73,9 +73,9 @@ class ParkingSessionRepository {
 
     /**
      * 2. [조회] 활성 세션 찾기 (중복 입차 체크용)
-     * - Service에서 호출하는 이름: findActiveSession
+     * - Service에서 호출하는 이름: findParkingActiveSession
      */
-    async findActiveSession(siteId, carNumber) {
+    async findParkingActiveSession(siteId, carNumber) {
         // ANY($3) 문법을 사용하여 여러 상태값을 한 번에 비교
         const query = `
             SELECT * FROM pf_parking_sessions 

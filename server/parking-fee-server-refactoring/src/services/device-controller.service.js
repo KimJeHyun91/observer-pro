@@ -122,12 +122,13 @@ class DeviceControllerService {
             // 1. 데이터 구조 정규화
             const config = responseData.docs || responseData;
 
-            // 2. 데이터 추출
-            const lprData = [ ...(config.lprs_list || []), ...(config.camera_list || []) ];
-            const barrierData = config.iotb_list || [];
-            const ledData = config.ledd_list || [];
-            const exitKioskData = config.pt_list || [];
-            const preKioskData = config.pre_pt_list || [];
+            // 2. 데이터 추출 (새로운 JSON 키 매핑)
+            // camera_list에 LPR과 정산기 카메라(Pinhole)가 혼재됨 -> _processCameraList에서 분기 처리
+            const cameraData = config.camera_list || []; 
+            const barrierData = config.iotb_list || [];   // 통합 제어기 (IoT Board) -> 부모 장비
+            const ledData = config.ledd_list || [];       // 전광판
+            const exitKioskData = config.pt_list || [];   // 출구 정산기 (PC)
+            const preKioskData = config.pre_pt_list || [];// 사전 정산기 (PC)
 
             // 3. [Step 1] 부모 장비(INTEGRATED_GATE) 생성
             const siteId = controller.siteId;
@@ -138,61 +139,46 @@ class DeviceControllerService {
             // 3-1. IoT Board 기준 생성
             for (const item of barrierData) {
                 const location = item.location || 'UNKNOWN';
-                const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+
+                let validIp = item.ip;
+                if (validIp === 'localhost' || !validIp) validIp = '127.0.0.1';
                 
                 // [방향 추론 적용]
                 const direction = this._getDirection(item, location);
+
+                // 유니크한 이름 생성 (location + index)
+                const deviceName = `${location}_INTEGRATED_${item.index ?? 0}`;
 
                 const parent = await this._upsertDevice({
                     siteId,
                     deviceControllerId: id,
                     laneId: laneMap.get(location),
                     type: 'INTEGRATED_GATE',
-                    name: `${location}_INTEGRATED_${item.index ?? 0}`,
+                    name: deviceName,
                     description: item.description || `통합 제어 장비 (${location})`,
                     location: location,
                     ipAddress: validIp,
                     port: item.port,
                     status: 'ONLINE',
-                    direction: direction
+                    direction: direction,
+                    modelName: 'IoT_Board'
                 });
                 if (parent) parentDeviceMap.set(location, parent.id);
             }
 
-            // 3-2. 가상 부모 생성 (IoT 없는 경우)
-            const allDevices = [...lprData, ...barrierData, ...ledData, ...exitKioskData, ...preKioskData];
-            const uniqueLocations = [...new Set(allDevices.map(d => d.location).filter(Boolean))];
-
-            for (const locName of uniqueLocations) {
-                if (!parentDeviceMap.has(locName)) {
-                    // 가상 장비도 이름으로 방향 추론
-                    const direction = this._getDirection({}, locName);
-
-                    const parent = await this._upsertDevice({
-                        siteId,
-                        deviceControllerId: id,
-                        laneId: laneMap.get(locName),
-                        type: 'INTEGRATED_GATE',
-                        name: `${locName}_INTEGRATED_VIRTUAL`,
-                        description: `가상 통합 장비 (${locName})`,
-                        location: locName,
-                        ipAddress: null,
-                        port: null,
-                        status: 'ONLINE',
-                        direction: direction
-                    });
-                    if (parent) parentDeviceMap.set(locName, parent.id);
-                }
-            }
-
             // 4. [Step 2] 하위 장비 연결
-            syncCount += await this._processCameraList(siteId, id, lprData, parentDeviceMap, laneMap);
+            // 4-1. 카메라 (LPR, 보조LPR, 정산기카메라)
+            syncCount += await this._processCameraList(siteId, id, cameraData, parentDeviceMap, laneMap);
+            
+            // 4-2. 전광판
             syncCount += await this._processSimpleList(siteId, id, ledData, 'LED', parentDeviceMap, laneMap);
+            
+            // 4-3. 정산기 (키오스크 본체)
             syncCount += await this._processKioskList(siteId, id, exitKioskData, 'EXIT', parentDeviceMap, laneMap);
             syncCount += await this._processKioskList(siteId, id, preKioskData, 'PRE', parentDeviceMap, laneMap);
-
-            // 5. 완료
-            await this.repository.update(id, { status: 'ONLINE', config: {} });
+            
+            // 5. 완료 처리
+            await this.repository.update(id, { status: 'ONLINE', config: config });
 
             logger.info(`[Sync] 동기화 완료. Parent: ${parentDeviceMap.size}개, Child: ${syncCount}개`);
             return { success: true, count: syncCount, parentCount: parentDeviceMap.size };
@@ -211,21 +197,19 @@ class DeviceControllerService {
     // 3. 없으면 기본값 IN
     // =================================================================
     _getDirection(item, location) {
-        // 1. 데이터에 명시된 값 확인 (일반 장비)
-        if (item.direction) return item.direction.toUpperCase();
-
-        // 2. IoT Board 특수 케이스 (loop1:입구, loop3:출구)
-        if (item.loop1 && item.loop1.direction) return item.loop1.direction.toUpperCase();
-        if (item.loop3 && item.loop3.direction) return item.loop3.direction.toUpperCase();
-
-        // 3. Location 이름으로 추론
-        if (location) {
-            if (location.includes('입차') || location.includes('입구')) return 'IN';
-            if (location.includes('출차') || location.includes('출구')) return 'OUT';
+        // 1. JSON 데이터에 명시된 값 (ledd_list 등)
+        if (item.direction && item.direction !== 'undefined') {
+            return item.direction.toUpperCase();
         }
 
-        // 4. 추론 불가시 기본값 (필요에 따라 NULL 반환 가능)
-        return 'IN'; 
+        // 2. Location 이름으로 추론
+        if (location) {
+            if (location.includes('입차') || location.includes('입구') || location.includes('in')) return 'IN';
+            if (location.includes('출차') || location.includes('출구') || location.includes('out')) return 'OUT';
+        }
+
+        // 3. 기본값
+        return 'IN';
     }
 
     // =================================================================
@@ -234,15 +218,31 @@ class DeviceControllerService {
     async _processCameraList(siteId, controllerId, list, parentMap, laneMap) {
         if (!list || !Array.isArray(list)) return 0;
         let count = 0;
+        
         for (const item of list) {
             const location = item.location || 'UNKNOWN';
             const desc = item.description || '';
-            const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+
+            let validIp = item.ip;
+            if (validIp === 'localhost') validIp = '127.0.0.1';
             const direction = this._getDirection(item, location); // 방향 추론
 
             let deviceType = 'MAIN_LPR';
-            if (desc.includes('정산기') || desc.includes('사전')) deviceType = 'PINHOLE_CAMERA';
-            else if (desc.includes('보조')) deviceType = 'SUB_LPR';
+
+            if (desc.includes('출차') && desc.includes('정산') || location.includes('출차') && location.includes('정산')) {
+                // 예: "구역A_출차1_정산기" -> 정산기 내부 핀홀 카메라
+                deviceType = 'EXIT_PINHOLE_CAMERA';
+            } else if (desc.includes('보조') || desc.includes('sub')) {
+                // 예: "구역A_입차1_보조lpr"
+                deviceType = 'SUB_LPR';
+            } else if (desc.includes('사전') && desc.includes('정산') || location.includes('사전') && location.includes('정산')) {
+                deviceType = 'PRE_PINHOLE_CAMERA'
+            } else {
+                // 예: "구역A_입차1_lpr"
+                deviceType = 'MAIN_LPR';
+            }
+
+            const parentId = parentMap.get(location) || parentMap.get(location.replace('_정산기', ''));
 
             const suffix = validIp.split('.').pop();
             const deviceName = `${location}_${deviceType}_${suffix}`;
@@ -250,8 +250,8 @@ class DeviceControllerService {
             await this._upsertDevice({
                 siteId,
                 deviceControllerId: controllerId,
-                laneId: laneMap.get(location),
-                parentDeviceId: parentMap.get(location),
+                laneId: laneMap.get(location) || laneMap.get(location.replace('_정산기', '')), // 정산기 카메라는 Gate Lane에 소속
+                parentDeviceId: parentId,
                 type: deviceType,
                 code: deviceType,
                 name: deviceName,
@@ -273,22 +273,25 @@ class DeviceControllerService {
     async _processKioskList(siteId, controllerId, list, kioskMode, parentMap, laneMap) {
         if (!list || !Array.isArray(list)) return 0;
         let count = 0;
+
         for (const item of list) {
-            const roleCode = kioskMode === 'PRE' ? 'PRE_KIOSK' : 'EXIT_KIOSK';
+            const kioskType = kioskMode === 'PRE' ? 'PRE_KIOSK' : 'EXIT_KIOSK';
             const location = item.location || 'UNKNOWN';
+
             const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
             const direction = this._getDirection(item, location); // 방향 추론
 
+            const parentId = parentMap.get(location);
+
             const suffix = validIp.split('.').pop();
-            const deviceName = `${location}_${roleCode}_${suffix}`;
+            const deviceName = `${location}_${kioskType}_${suffix}`;
 
             await this._upsertDevice({
                 siteId,
                 deviceControllerId: controllerId,
                 laneId: laneMap.get(location),
-                parentDeviceId: parentMap.get(location),
-                type: 'KIOSK',
-                code: roleCode,
+                parentDeviceId: parentId,
+                type: kioskType,
                 name: deviceName,
                 description: item.description,
                 ipAddress: validIp,
@@ -308,11 +311,16 @@ class DeviceControllerService {
     async _processSimpleList(siteId, controllerId, list, type, parentMap, laneMap) {
         if (!list || !Array.isArray(list)) return 0;
         let count = 0;
+
         for (const item of list) {
             const location = item.location || 'UNKNOWN';
-            const validIp = (item.ip === 'localhost') ? '127.0.0.1' : item.ip;
+
+            let validIp = item.ip;
+            if (validIp === 'localhost') validIp = '127.0.0.1';
+            
             const direction = this._getDirection(item, location); // 방향 추론
 
+            // LED의 경우 index가 명시되어 있는 경우가 많음
             const suffix = item.index !== undefined ? `_${item.index}` : `_${validIp.split('.').pop()}`;
             const deviceName = `${location}_${type}${suffix}`;
 
@@ -337,6 +345,7 @@ class DeviceControllerService {
 
     async _upsertDevice(data) {
         try {
+            // 이름과 컨트롤러 ID로 기존 장비 조회
             const existing = await this.deviceService.findAll({
                 siteId: data.siteId,
                 deviceControllerId: data.deviceControllerId,

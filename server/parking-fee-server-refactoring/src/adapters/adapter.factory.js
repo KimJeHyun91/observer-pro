@@ -61,4 +61,4 @@ class AdapterFactory {
     }
 }
 
-module.exports = new AdapterFactory;
+module.exports = new AdapterFactory();

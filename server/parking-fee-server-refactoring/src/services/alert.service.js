@@ -1,113 +1,153 @@
 const logger = require('../../../logger');
-const AlertRepository = require('../repositories/alert.repository');
-
-/**
- * 알림 유형 상수 정의
- */
-const AlertType = {
-    BLACKLIST_DETECTED: 'BLACKLIST_DETECTED',   // 블랙리스트 차량 진입
-    LPR_ERROR: 'LPR_ERROR',                     // 번호 미인식
-    DEVICE_OFFLINE: 'DEVICE_OFFLINE',           // 장비 연결 끊김
-    SYSTEM_ERROR: 'SYSTEM_ERROR',               // 시스템 내부 오류
-    GHOST_EXIT: 'GHOST_EXIT'                    // 미입차 차량 출차 시도
-};
 
 class AlertService {
     constructor() {
-        this.repository = new AlertRepository();
+        // 알림 타입 정의 (Critical Alerts)
+        this.Types = {
+            BLACKLIST_DETECTED: 'BLACKLIST_DETECTED',   // 블랙리스트 차량 진입
+            LPR_ERROR: 'LPR_ERROR',                     // 번호 미인식
+            DEVICE_OFFLINE: 'DEVICE_OFFLINE',           // 장비 연결 끊김
+            SYSTEM_ERROR: 'SYSTEM_ERROR',               // 시스템 내부 오류
+            GHOST_EXIT: 'GHOST_EXIT'                    // 미입차 차량 출차 시도
+        }
+    }
+    
+    /**
+     * [Critical] 중요 알림 전송 (에러, 블랙리스트 등)
+     * - 대상 이벤트: pf_alert-update
+     * @param {Object} data 
+     */
+    async sendAlert(data) {
+        try {
+            const { type, message, siteId, data } = data;
+            
+            logger.warn(`[AlertService] Critical Alert: [${type}] ${message}`);
+
+            // 웹소켓으로 알림 전송 (이벤트명: pf_alert-update)
+            if (global.websocket) {
+                global.websocket.emit('pf_alert-update', {
+                    type,
+                    message,
+                    siteId,
+                    timestamp: new Date(),
+                    details: data
+                });
+            }
+
+            // TODO: 필요 시 Slack, SMS, Push Notification 연동 로직 추가
+        } catch (error) {
+            logger.error(`[AlertService] 알림 전송 실패: ${error.message}`);
+        }
     }
 
     /**
-     * 알림 전송 메인 메서드
+     * [Operation] LPR 입출차 및 상태 변경 알림 전송
+     * - 대상 이벤트: pf_lpr-update
+     * @param {Object} data
      */
-    async sendAlert({ type, message, siteId, data = {} }) {
+    sendLprUpdate(data) {
+        if (!global.websocket) return;
+
         try {
-            // 1. 알림 객체 생성 (WebSocket용)
-            const alertPayload = {
-                type,
-                message,
+            // 1. 데이터 구조 분해 할당 (기본값 설정)
+            const {
+                parkingSessionId,
                 siteId,
-                data, 
-                timestamp: new Date()
+                carNumber,
+                direction,
+                location = 'UNKNOWN',
+                deviceIp = null,
+                devicePort = null,
+                imageUrl,
+                eventTime = new Date(),
+                totalFee = 0,
+                discountFee = 0,
+                preSettledFee = 0,
+                remainingFee = 0,
+                discountPolicyIds = [],
+                status,
+                isBlacklist = false,
+                vehicleType = 'NORMAL',
+                message = ''
+            } = data;
+
+            // 2. 차종 한글 명칭 변환
+            let vehicleTypeName = "일반";
+            if (vehicleType === 'MEMBER') vehicleTypeName = "정기권";
+            else if (vehicleType === 'COMPACT') vehicleTypeName = "경차";
+            else if (vehicleType === 'ELECTRIC') vehicleTypeName = "전기차";
+
+            // 3. 페이로드 구성
+            const payload = {
+                parkingSessionId,
+                siteId,
+                carNumber,
+                direction,
+                location,
+                deviceIp,
+                devicePort,
+                imageUrl,
+                eventTime,
+                totalFee,
+                discountFee,
+                preSettledFee,
+                remainingFee,
+                discountPolicyIds,
+                status,
+                isBlacklist,
+                vehicleType: vehicleTypeName,
+                message
             };
 
-            // 2. 서버 로그 기록
-            logger.warn(`[Alert Service] ${type} - ${message}`, data);
-
-            // 3. [활성화] DB 저장 (이력 관리용)
-            await this.repository.create({
-                siteId,
-                type,
-                message,
-                metadata: data 
-            });
-
-            // 4. 실시간 웹소켓 전송
-            if (global.websocket) {
-                global.websocket.emit('pf_alert', alertPayload);
-                logger.info(`[Alert Service] WebSocket 전송 완료: ${type}`);
-            }
+            global.websocket.emit("pf_lpr-update", { parkingSession: { 'data': payload } });
+            logger.info(`[AlertService] LPR Update sent: ${carNumber} (${direction})`);
 
         } catch (error) {
-            // 알림 실패가 전체 로직을 망가뜨리지 않도록 로그만 남김
-            logger.error(`[Alert Service] 알림 전송 중 오류: ${error.message}`);
+            logger.error(`[AlertService] LPR 업데이트 전송 실패: ${error.message}`);
         }
     }
 
     /**
-     * 알림 목록 조회
+     * [Operation] 차단기 상태 변경 알림 전송
+     * - 대상 이벤트: pf_gate_state-update
+     * @param {Object} data
      */
-    async findAll(params) {
-        const page = parseInt(params.page) || 1;
-        const limit = parseInt(params.limit) || 20; 
-        const offset = (page - 1) * limit;
+    sendGateStatus(data) {
+        if (!global.websocket) return;
 
-        const sortOptions = {
-            sortBy: params.sortBy || 'created_at',
-            sortOrder: params.sortOrder || 'DESC'
-        };
+        try {
+            const {
+                siteId,
+                zoneId,
+                laneId,
+                deviceId,
+                direction = 'UNKNOWN',
+                deviceIp,
+                devicePort,
+                location,
+                status,
+                eventTime
+            } = data;
 
-        const filters = {
-            siteId: params.siteId,
-            type: params.type,
-            isRead: params.isRead,
-            startTime: params.startTime, 
-            endTime: params.endTime      
-        };
+            const payload = {
+                siteId,
+                zoneId,
+                laneId,
+                deviceId,
+                direction,
+                deviceIp,
+                devicePort,
+                location,
+                status,
+                eventTime
+            };
 
-        const { rows, count } = await this.repository.findAll(filters, sortOptions, limit, offset);
+            global.websocket.emit("pf_gate_state-update", { gateState: { 'data': payload } });
 
-        return {
-            alerts: rows,
-            meta: {
-                totalItems: count,
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                itemsPerPage: limit
-            }
-        };
-    }
-
-    /**
-     * [추가됨] 알림 읽음 처리 (Controller와 연결)
-     */
-    async markAsRead(id) {
-        const data = await this.repository.markAsRead(id);
-        
-        if (!data) {
-            const error = new Error('해당 알림을 찾을 수 없습니다.');
-            error.status = 404;
-            throw error;
+        } catch (error) {
+            logger.error(`[AlertService] Gate 상태 전송 실패: ${error.message}`);
         }
-        return data;
-    }
-
-    // (선택 사항) 인스턴스 메서드로도 접근하고 싶다면 유지
-    get Types() {
-        return AlertType;
     }
 }
 
-// 인스턴스와 상수를 함께 내보냄
-module.exports = new AlertService();
-module.exports.AlertType = AlertType;
+module.exports = AlertService;

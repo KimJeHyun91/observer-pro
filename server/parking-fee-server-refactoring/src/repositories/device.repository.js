@@ -330,6 +330,22 @@ class DeviceRepository {
             client.release();
         }
     }
+
+    /**
+     * IP, PORT로 device 조회
+     */
+    async findDeviceByIpAndPort(deviceIp, devicePort) {
+        const query = `SELECT * FROM pf_devices WHERE ip_address = $1 AND port = $2`;
+        const {rows} = await pool.query(query, [deviceIp, devicePort]);
+
+        if (!rows[0]) {
+            const notFoundError = new Error('해당하는 데이터를 찾을 수 없습니다.');
+            notFoundError.status = 404;
+            throw notFoundError;
+        }
+
+        return humps.camelizeKeys(rows[0]);
+    }
 }
 
 module.exports = DeviceRepository;

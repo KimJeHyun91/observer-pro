@@ -23,8 +23,11 @@ class PlsController {
      */
     receiveLprData = async (req, res, next) => {
         try {
+            console.log('11111111111111111111 {}' + res.body.kind);
+
             // [중요] 장비에게 즉시 성공 응답 전송 (Time-out 방지)
             res.status(200).json({ status: 'ok', message: '' });
+            
 
             // 비즈니스 로직 실행 (응답 후 백그라운드 처리)
             // 에러가 발생해도 장비 통신에는 영향을 주지 않도록 내부에서 로그 처리
@@ -47,6 +50,7 @@ class PlsController {
      */
     handleGateStateEvent = async (req, res, next) => {
         try {
+
             // [중요] 즉시 응답
             res.status(200).json({ status: 'ok', message: '' });
 
@@ -140,4 +144,4 @@ class PlsController {
     }
 }
 
-module.exports = PlsController;
+module.exports = new PlsController();

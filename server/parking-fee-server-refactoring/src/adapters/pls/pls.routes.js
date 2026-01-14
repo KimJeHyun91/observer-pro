@@ -12,6 +12,7 @@ const plsController = require('./pls.controller');
  * ==============================================================================
  */
 
+
 /**
  * @route   POST /lpr
  * @desc    [LPR] 차량 번호 인식 데이터 수신

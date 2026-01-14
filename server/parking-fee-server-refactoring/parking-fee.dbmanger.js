@@ -190,7 +190,7 @@ async function initParkingFeeDbSchema() {
 
                 parent_device_id UUID REFERENCES pf_devices(id) ON DELETE CASCADE,  -- 상위 장비 ID
                 
-                type TEXT NOT NULL CHECK (type IN ('INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'PINHOLE_CAMERA', 'LED', 'KIOSK', 'LOOP')), -- 장비 유형
+                type TEXT NOT NULL CHECK (type IN ('INTEGRATED_GATE', 'BARRIER', 'MAIN_LPR', 'SUB_LPR', 'EXIT_PINHOLE_CAMERA', 'PRE_PINHOLE_CAMERA', 'LED', 'EXIT_KIOSK', 'PRE_KIOSK', 'LOOP')), -- 장비 유형
 
                 name TEXT NOT NULL, -- 장비 이름
                 description TEXT,   -- 장비 설명

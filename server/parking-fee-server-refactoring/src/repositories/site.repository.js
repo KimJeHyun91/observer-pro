@@ -65,6 +65,15 @@ class SiteRepository {
                     WHERE id = ANY($2)
                 `;
                 await db.query(updateControllersQuery, [newSiteId, data.deviceControllerIdList]);
+
+                // 2. [추가] 해당 제어기에 연결된 장비(Devices)들의 site_id 업데이트
+                // 가정: pf_devices 테이블에 device_controller_id 컬럼이 존재함
+                const updateDevicesQuery = `
+                    UPDATE pf_devices
+                    SET site_id = $1
+                    WHERE device_controller_id = ANY($2)
+                `;
+                await db.query(updateDevicesQuery, [newSiteId, data.deviceControllerIdList]);
             }
 
             return humps.camelizeKeys(rows[0]);
