@@ -1,41 +1,38 @@
 const { body, query, param } = require('express-validator');
 
 /**
- * 사이트 생성 유효성 검사
+ * 사이트(Site) 생성 유효성 검사
  */
 exports.createSite = [
-    body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
-    body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
 
-    body('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
-    body('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
+    body('name')
+        .notEmpty().withMessage('주차장 이름은 필수입니다.')
+        .isString().withMessage('주차장 이름은 문자열이어야 합니다.'),
 
-    body('phone').optional().isString().withMessage('phone는 문자열이어야합니다.'),
-    body('zipCode').optional().isString().withMessage('zipCode는 문자열이어야합니다.'),
-    body('addressBase').optional().isString().withMessage('addressBase는 문자열이어야합니다.'),
-    body('addressDetail').optional().isString().withMessage('addressDetail는 문자열이어야합니다.'),
+    body('description')
+        .optional()
+        .isString().withMessage('주차장 설명은 문자열이어야 합니다.'),
 
-    body('deviceControllerIdList').notEmpty().withMessage('deviceControllerIdList는 필수입니다.'),
-    
-    // 주차 면수 정보 검증
-    body('totalCapacity').optional().isInt({ min: 0 }).withMessage('totalCapacity는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail').optional().isObject().withMessage('capacityDetail은 JSON 객체여야 합니다.'),
-    
-    // capacityDetail 내부 필드 검증
-    body('capacityDetail.general').optional().isInt({ min: 0 }).withMessage('capacityDetail.general는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.disabled').optional().isInt({ min: 0 }).withMessage('capacityDetail.disabled는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.compact').optional().isInt({ min: 0 }).withMessage('capacityDetail.compact는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.ev_slow').optional().isInt({ min: 0 }).withMessage('capacityDetail.ev_slow는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.ev_fast').optional().isInt({ min: 0 }).withMessage('capacityDetail.ev_fast는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.women').optional().isInt({ min: 0 }).withMessage('capacityDetail.women는 0 이상의 정수여야 합니다.')
+    body('code')
+        .optional()
+        .isString().withMessage('주차장 코드는 문자열이어야 합니다.'),   
+
+    body('deviceControllerIds')
+        .notEmpty().withMessage('장비 제어기 ID 목록은 필수입니다.')
+        .isArray({ min: 1 }).withMessage('장비 제어기 ID 목록은 1개 이상이어야 합니다.'),
+    body('deviceControllerIds.id')
+        .isUUID().withMessage('장비 제어기 ID는 uuid 형식이어야 합니다.')
+
 ];
 
 /**
- * 사이트 수정 유효성 검사
+ * 사이트(Site) 수정 유효성 검사
  */
 exports.updateSite = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
+
+    param('id')
+        .notEmpty().withMessage('주차장 ID는 필수입니다.')
+        .isUUID().withMessage('주차장 ID는 UUID이어야 합니다.'),
 
     body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
     body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
