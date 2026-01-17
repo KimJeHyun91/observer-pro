@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
 const logger = require('../logger');
 
-exports.signJsonWebToken = async (id) => {
+exports.signJsonWebToken = async (id, role) => {
 
   const payLoad = {
     id: id,
+    role: role,
     logindatetime: new Date().getTime()
   };
   const secret = 'observer';

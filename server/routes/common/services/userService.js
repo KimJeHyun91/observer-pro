@@ -35,7 +35,7 @@ exports.login = async (id, password) => {
         // 비밀번호 일치, 정상 접속
         returnValue = {
           status: true, // 정상접속
-          token: await auth.signJsonWebToken(id),
+          token: await auth.signJsonWebToken(id, userInfo.user_role),
           user: {
             userId: userInfo.id,
             userName: userInfo.user_name,

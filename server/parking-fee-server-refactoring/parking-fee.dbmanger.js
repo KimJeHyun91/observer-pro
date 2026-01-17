@@ -71,26 +71,7 @@ async function initParkingFeeDbSchema() {
                 description TEXT,           -- 주차장 설명
                 code TEXT,                  -- 주차장 코드
 
-                manager_name TEXT,  -- 담당자 이름
-                manager_phone TEXT, -- 담당자 연락처  
-
-                phone TEXT,             -- 주차장 연락처
-                zip_code TEXT,          -- 우편번호
-                address_base TEXT,      -- 기본 주소
-                address_detail TEXT,    -- 상세 주소
-                
-                total_capacity INTEGER DEFAULT 0 NOT NULL,  -- 전체 수용량
-
-                --세부 면수 정보 (JSONB)
-                --general: integer     - 일반 주차면 수
-                --disabled: integer    - 장애인 전용 주차면 수 
-                --compact: integer     - 경차 전용 주차면 수 
-                --ev_slow: integer     - 전기차 완속 충전면 수 
-                --ev_fast: integer     - 전기차 급속 충전면 수 
-                --women: integer       - 여성 우선/전용 주차면 수 
-                capacity_detail JSONB DEFAULT '{}' NOT NULL,
-
-                status TEXT CHECK (status IN ('normal', 'error', 'log')), -- 주차장 상태
+                status TEXT CHECK (status IN ('normal', 'error', 'lock')), -- 주차장 상태
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
