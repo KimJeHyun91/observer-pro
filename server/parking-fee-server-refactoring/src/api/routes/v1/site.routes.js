@@ -3,54 +3,48 @@ const router = express.Router();
 const siteController = require('../../controllers/site.controller');
 const siteValidator = require('../../validators/site.validator');
 const validate = require('../../middlewares/validator');
-const errorHandler = require('../../middlewares/error-handler');
-const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const { verifyToken, restrictTo } = require('../../middlewares/auth.middleware');
+
+/**
+ * @route   GET /api/v1/sites
+ * @desc    사이트(Site) 목록 조회
+ * @access  Public
+ */
+router.get('/', verifyToken, restrictTo(['admin', 'user']), siteValidator.getSites, validate, siteController.findAll);
+
+/**
+ * @route   GET /api/v1/sites/:id
+ * @desc    사이트(Site) 상세 조회
+ * @access  Public
+ */
+router.get('/:id', verifyToken, restrictTo(['admin', 'user']), siteValidator.getSite, validate, siteController.findDetail);
 
 /**
  * @route   POST /api/v1/sites
  * @desc    신규 사이트(Site) 생성
  * @access  Admin
  */
-router.post('/', verifyToken, checkRole(['admin']), siteValidator.createSite, validate, siteController.create);
-
-/**
- * @route   GET /api/v1/sites
- * @desc    사이트(Site) 목록 조회
- * - 모든 컬럼에 대한 검색 지원
- * - 정렬 및 페이지네이션 지원
- * @access  Public (또는 Protected)
- */
-router.get('/', verifyToken, checkRole(['admin', 'user']), siteValidator.getSites, validate, siteController.findAll);
-
-/**
- * @route   GET /api/v1/sites/:id
- * @desc    사이트(Site) 상세 조회
- * - 해당 사이트의 상세 정보 및 구역(Zone), 장비 제어기(Device Controller) 목록 반환
- * @access  Public
- */
-router.get('/:id', verifyToken, checkRole(['admin']), siteValidator.getSite, validate, siteController.findDetail);
+router.post('/', verifyToken, restrictTo(['admin']), siteValidator.createSite, validate, siteController.create);
 
 /**
  * @route   PATCH /api/v1/sites/:id
- * @desc    사이트(Site) 정보 수정 (Partial Update)
+ * @desc    사이트(Site) 정보 수정
  * @access  Admin
  */
-router.patch('/:id', verifyToken, checkRole(['admin']), siteValidator.updateSite, validate, siteController.update);
+router.patch('/:id', verifyToken, restrictTo(['admin']), siteValidator.updateSite, validate, siteController.update);
 
 /**
  * @route   DELETE /api/v1/sites/:id
- * @desc    사이트(Site) 삭제 (Delete)
+ * @desc    사이트(Site) 삭제
  * @access  Admin
  */
-router.delete('/:id', verifyToken, checkRole(['admin']), siteValidator.deleteSite, validate, siteController.delete);
+router.delete('/:id', verifyToken, restrictTo(['admin']), siteValidator.deleteSite, validate, siteController.delete);
 
 /**
  * @route   GET /api/v1/sites/:id/tree
  * @desc    사이트(Site) 트리 조회
- * @access  Public (또는 Protected)
+ * @access  Public
  */
-router.get('/:id/tree', verifyToken, checkRole(['admin']), siteValidator.getSiteTree, validate, siteController.findTree);
-
-router.use(errorHandler);
+router.get('/:id/tree', verifyToken, restrictTo(['admin']), siteValidator.getSiteTree, validate, siteController.findTree);
 
 module.exports = router;

@@ -1,28 +1,85 @@
 const { body, query, param } = require('express-validator');
 
+const validateId = param('id')
+    .notEmpty().withMessage('id는 필수입니다.')
+    .isUUID().withMessage('유효하지 않은 UUID 형식입니다.');
+
+/**
+ * 사이트(Site) 목록 조회 유효성 검사
+ */
+exports.getSites = [
+    // 페이징
+    query('page')
+        .optional()
+        .isInt({ min: 1 }).withMessage('page는 1이상의 숫자여야 합니다.')
+        .toInt(),
+
+    query('limit')
+        .optional()
+        .isInt({ min: 1 }).withMessage('limit은 1이상의 숫자여야 합니다.')
+        .toInt(),
+    
+    // 정렬
+    query('sortBy')
+        .optional()
+        .isString().withMessage('sortBy는 문자열이어야 합니다.')
+        .trim()
+        .isIn(['name', 'code', 'createdAt', 'updatedAt'])
+        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, createdAt, updatedAt)'),
+
+    query('sortOrder')
+        .optional()
+        .toUpperCase()
+        .isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'여야 합니다."),
+    
+    // 기본 검색
+    query('name')
+        .optional()
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
+
+    query('code')
+        .optional()
+        .isString().withMessage('code는 문자열이어야 합니다.')
+        .trim(),
+        
+    query('status')
+        .optional()
+        .toUpperCase()
+        .isIn(['NORMAL', 'ERROR', 'LOCK', 'UNLOCK']).withMessage("status는 'NORMAL', 'ERROR', 'LOCK', 'UNLOCK' 중 하나여야 합니다.")
+];
+
+/**
+ * 사이트(Site) 상세 조회 유효성 검사
+ */
+exports.getSite = [
+    validateId
+];
+
 /**
  * 사이트(Site) 생성 유효성 검사
  */
 exports.createSite = [
-
     body('name')
-        .notEmpty().withMessage('주차장 이름은 필수입니다.')
-        .isString().withMessage('주차장 이름은 문자열이어야 합니다.'),
+        .notEmpty().withMessage('name은 필수입니다.')
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
 
     body('description')
         .optional()
-        .isString().withMessage('주차장 설명은 문자열이어야 합니다.'),
+        .isString().withMessage('description은 문자열이어야 합니다.')
+        .trim(),
 
     body('code')
         .optional()
-        .isString().withMessage('주차장 코드는 문자열이어야 합니다.'),   
+        .isString().withMessage('code는 문자열이어야 합니다.')
+        .trim(),   
 
     body('deviceControllerIds')
-        .notEmpty().withMessage('장비 제어기 ID 목록은 필수입니다.')
-        .isArray({ min: 1 }).withMessage('장비 제어기 ID 목록은 1개 이상이어야 합니다.'),
-    body('deviceControllerIds.id')
-        .isUUID().withMessage('장비 제어기 ID는 uuid 형식이어야 합니다.')
-
+        .notEmpty().withMessage('deviceControllerIds은 필수입니다.')
+        .isArray({ min: 1 }).withMessage('deviceControllerIds은 1개 이상의 배열이어야 합니다.'),
+    body('deviceControllerIds.*')
+        .isUUID().withMessage('deviceControllerIds의 요소는 UUID 형식이어야 합니다.')
 ];
 
 /**
@@ -30,141 +87,50 @@ exports.createSite = [
  */
 exports.updateSite = [
 
-    param('id')
-        .notEmpty().withMessage('주차장 ID는 필수입니다.')
-        .isUUID().withMessage('주차장 ID는 UUID이어야 합니다.'),
+    validateId,
 
-    body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
-    body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
+    body('name')
+        .optional()
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
 
-    body('status').optional().isString().withMessage('status는 문자열이어야합니다.'),   
+    body('description')
+        .optional()
+        .isString().withMessage('description은 문자열이어야 합니다.')
+        .trim(),
 
-    body('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
-    body('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
-
-    body('phone').optional().isString().withMessage('phone는 문자열이어야합니다.'),
-    body('zipCode').optional().isString().withMessage('zipCode는 문자열이어야합니다.'),
-    body('addressBase').optional().isString().withMessage('addressBase는 문자열이어야합니다.'),
-    body('addressDetail').optional().isString().withMessage('addressDetail는 문자열이어야합니다.'),
+    body('code')
+        .optional()
+        .isString().withMessage('code는 문자열이어야 합니다.')
+        .trim(),
+        
+    body('deviceControllerId')
+        .optional()
+        .isUUID().withMessage('deviceControllerId는 UUID 형식이어야 합니다.'),
     
-    // 주차 면수 정보 검증
-    body('totalCapacity').optional().isInt({ min: 0 }).withMessage('totalCapacity는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail').optional().isObject().withMessage('capacityDetail은 JSON 객체여야 합니다.'),
-    
-    // capacityDetail 내부 필드 검증
-    body('capacityDetail.general').optional().isInt({ min: 0 }).withMessage('capacityDetail.general는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.disabled').optional().isInt({ min: 0 }).withMessage('capacityDetail.disabled는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.compact').optional().isInt({ min: 0 }).withMessage('capacityDetail.compact는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.ev_slow').optional().isInt({ min: 0 }).withMessage('capacityDetail.ev_slow는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.ev_fast').optional().isInt({ min: 0 }).withMessage('capacityDetail.ev_fast는 0 이상의 정수여야 합니다.'),
-    body('capacityDetail.women').optional().isInt({ min: 0 }).withMessage('capacityDetail.women는 0 이상의 정수여야 합니다.')
+    body('updateAction')
+        .if(body('deviceControllerId').exists())
+        .notEmpty().withMessage('deviceControllerId를 변경하려면 updateAction(ADD/REMOVE)이 필수입니다.')
+        .toUpperCase()
+        .isIn(['ADD', 'REMOVE'])
+        .withMessage("updateAction은 'ADD' 또는 'REMOVE'여야 합니다."),
+
+    body('status')
+        .optional()
+        .toUpperCase()
+        .isIn(['LOCK', 'UNLOCK']).withMessage("status는 'LOCK', 'UNLOCK' 중 하나여야 합니다.")
 ];
 
 /**
- * 사이트 상세 조회 유효성 검사
- */
-exports.getSite = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-];
-
-/**
- * 사이트 트리 조회 유효성 검사
- */
-exports.getSiteTree = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-];
-
-/**
- * 사이트 삭제 유효성 검사
+ * 사이트(Site) 삭제 유효성 검사
  */
 exports.deleteSite = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
+    validateId
 ];
 
 /**
- * 사이트 목록 조회 유효성 검사
+ * 사이트(Site) 트리 조회 유효성 검사
  */
-exports.getSites = [
-    // 페이징
-    query('page').optional().isInt({ min: 1 }).withMessage('page는 숫자이어야 합니다.'),
-    query('limit').optional().isInt({ min: 1 }).withMessage('limit은 숫자이어야 합니다.'),
-    
-    // 정렬
-    query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().toUpperCase().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
-    
-    // 기본 검색
-    query('name').optional().isString().withMessage('name은 문자열이어야합니다.'),
-    query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
-
-    query('managerName').optional().isString().withMessage('managerName은 문자열이어야합니다.'),
-    query('managerPhone').optional().isString().withMessage('managerPhone는 문자열이어야합니다.'),
-
-    query('phone').optional().isString().withMessage('phone는 문자열이어야합니다.'),
-    query('zipCode').optional().isString().withMessage('zipCode는 문자열이어야합니다.'),
-    query('addressBase').optional().isString().withMessage('addressBase는 문자열이어야합니다.'),
-    query('addressDetail').optional().isString().withMessage('addressDetail는 문자열이어야합니다.'),
-    
-    // totalCapacity 범위 검색
-    query('totalCapacityMin').optional().isInt({ min: 0 }).withMessage('totalCapacityMin는 0 이상의 정수여야 합니다.'),
-    query('totalCapacityMax').optional().isInt({ min: 0 }).withMessage('totalCapacityMax는 0 이상의 정수여야 합니다.'),
-
-    // capacityDetail 내부 필드 범위 검색
-    // general (일반)
-    query('capacityDetailGeneralMin').optional().isInt({ min: 0 }).withMessage('capacityDetailGeneralMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailGeneralMax').optional().isInt({ min: 0 }).withMessage('capacityDetailGeneralMax는 0 이상의 정수여야 합니다.'),
-    // disabled (장애인)
-    query('capacityDetailDisabledMin').optional().isInt({ min: 0 }).withMessage('capacityDetailDisabledMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailDisabledMax').optional().isInt({ min: 0 }).withMessage('capacityDetailDisabledMax는 0 이상의 정수여야 합니다.'),
-    // compact (경차)
-    query('capacityDetailCompactMin').optional().isInt({ min: 0 }).withMessage('capacityDetailCompactMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailCompactMax').optional().isInt({ min: 0 }).withMessage('capacityDetailCompactMax는 0 이상의 정수여야 합니다.'),
-    // evSlow (전기차 완속 충전)
-    query('capacityDetailEvSlowMin').optional().isInt({ min: 0 }).withMessage('capacityDetailEvSlowMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailEvSlowMax').optional().isInt({ min: 0 }).withMessage('capacityDetailEvSlowMax는 0 이상의 정수여야 합니다.'),
-    // evFast (전기차 고속 충전)
-    query('capacityDetailEvFastMin').optional().isInt({ min: 0 }).withMessage('capacityDetailEvFastMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailEvFastMax').optional().isInt({ min: 0 }).withMessage('capacityDetailEvFastMax는 0 이상의 정수여야 합니다.'),
-    // women (여성)
-    query('capacityDetailWomenMin').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMin는 0 이상의 정수여야 합니다.'),
-    query('capacityDetailWomenMax').optional().isInt({ min: 0 }).withMessage('capacityDetailWomenMax는 0 이상의 정수여야 합니다.'),
-
-    query('createdAtStart')
-        .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(),
-
-    query('createdAtEnd')
-        .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate()
-        .custom((value, { req }) => {
-            // 시작일이 종료일보다 늦은지 체크
-            if (req.query.createdAtStart && value < new Date(req.query.createdAtStart)) {
-                throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
-            }
-            return true;
-        }),
-    query('updatedAtStart')
-        .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(),
-
-    query('updatedAtEnd')
-        .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate()
-        .custom((value, { req }) => {
-            // 시작일이 종료일보다 늦은지 체크
-            if (req.query.updatedAtStart && value < new Date(req.query.updatedAtStart)) {
-                throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
-            }
-            return true;
-        }),
+exports.getSiteTree = [
+    validateId
 ];

@@ -1,188 +1,81 @@
-const SiteService = require('../../services/site.service');
-const siteService = new SiteService();
+const siteService = require('../../services/site.service');
+const socketService = require('../../services/socket.service');
 
 /**
- * Site Controller
- * - 사이트(Site) 관련 HTTP 요청을 처리하는 컨트롤러입니다.
+ * 목록 조회 (Find All)
  */
-class SiteController {
-    /**
-     * 생성 (Create)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async create(req, res, next) {
-        try {
-            const data = await siteService.create(req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-            
-            // res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+exports.findAll = async (req, res, next) => {
+    try {
+        const data = await siteService.findAll(req.query);
+        res.status(200).json({ status: 'OK', message: 'success', data });           
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 목록 조회 (Find All)
-     * - 검색, 정렬, 페이징 처리가 적용된 목록을 반환합니다.
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async findAll(req, res, next) {
-        try {
-            const params = req.query;
-            const data = await siteService.findAll(params);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            res.status(200).json({ 
-                status: 'OK', 
-                data: {
-                    sites: data.sites.map(site => ({
-                        id: site.id,
-                        name: site.name,
-                        status: site.status, 
-                        createdAt: site.createdAt,
-                        updatedAt: site.updatedAt
-                    })),
-                    meta: data.meta
-                }
-            });
-
-            // res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 상세 조회 (Find Detail)
+ */
+exports.findDetail = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const data = await siteService.findDetail(id);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 상세 조회 (Find Detail)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async findDetail(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await siteService.findDetail(id);
-            res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 생성 (Create)
+ */
+exports.create = async (req, res, next) => {
+    try {
+        await siteService.create(req.body);
+        socketService.emitSiteRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });            
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 수정 (Update)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async update(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await siteService.update(id, req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 수정 (Update)
+ */
+exports.update = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await siteService.update(id, req.body);
+        socketService.emitSiteRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 삭제 (Delete)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async delete(req, res, next) {
-        try {
-            const { id } = req.params;
-
-            const data = await siteService.delete(id);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { sitesCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ 
-            //     status: 'OK', 
-            //     message: '성공적으로 삭제되었습니다.',
-            //     data: {
-            //         id: data.id
-            //     }
-            // });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await siteService.delete(id);
+        socketService.emitSiteRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 트리 조회 (Find Tree)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async findTree(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await siteService.findTree(id);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            const customResponse = {
-                status: "ok",
-                data: {
-                    zones: data.zones.map(zone => ({
-                        id: zone.id,
-                        siteId: data.id,
-                        name: zone.name,
-                        createdAt: zone.createdAt,
-                        updatedAt: zone.updatedAt,
-                        lanes: zone.lanes.map(lane => ({
-                            id: lane.id,
-                            zoneId: zone.id,
-                            name: lane.name,
-                            createdAt: lane.createdAt,
-                            updatedAt: lane.updatedAt,
-                            devices: lane.devices.map(device => ({
-                                id: device.id,
-                                laneId: lane.id,
-                                ipAddress: device.ipAddress,
-                                port: device.port,
-                                type: device.type,
-                                direction: device.direction,
-                                location: device.location
-                            }))
-                        }))
-                    }))
-                },
-                meta: {
-                    totalItems: data.zones.length,
-                    totalPages: 1,
-                    currentPage: 1,
-                    itemsPerPage: 10
-                }
-            };
-            res.status(200).json(customResponse);
-
-            // res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 트리 조회 (Find Tree)
+ */
+exports.findTree = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const data = await siteService.findTree(id);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
     }
-}
-
-module.exports = new SiteController();
+};

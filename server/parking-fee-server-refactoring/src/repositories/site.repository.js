@@ -2,461 +2,265 @@ const { pool } = require('../../../db/postgresqlPool');
 const humps = require('humps');
 
 /**
- * Site Repository
- * - pf_sites 테이블에 대한 직접적인 CRUD 및 쿼리 수행
- * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
+ * 목록 조회 (Find All)
  */
-class SiteRepository {
+exports.findAll = async (filters, sortOptions, limit, offset) => {
+    const SORT_MAPPING = {
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+        name: 'name',
+        code: 'code',
+        status: 'status'
+    };
+    const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
     
+    // 1. 동적 WHERE 절 생성 (조건 하나씩 명시)
+    const conditions = [];
+    const values = [];
+    
+    // (1) 이름 검색 (Partial Match)
+    if (filters.name) {
+        conditions.push(`name LIKE $${values.length + 1}`);
+        values.push(`%${filters.name}%`);
+    }
+
+    // (2) 코드 검색 (Exact Match) - 예시로 추가
+    if (filters.code) {
+        conditions.push(`code = $${values.length + 1}`);
+        values.push(filters.code);
+    }
+
+    // (3) 상태 검색 (Exact Match)
+    if (filters.status) {
+        conditions.push(`status = $${values.length + 1}`);
+        values.push(filters.status);
+    }    
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // 2. 카운트 쿼리
+    const countQuery = `SELECT COUNT(*) FROM pf_sites ${whereClause}`;
+    const countResult = await pool.query(countQuery, values);
+    const count = parseInt(countResult.rows[0].count, 10);
+
+    // 3. 조회 쿼리
+    // LIMIT과 OFFSET은 values 배열의 뒤에 이어 붙입니다.
+    const query = `
+        SELECT id, name, description, code, status, created_at, updated_at FROM pf_sites
+        ${whereClause}
+        ORDER BY ${dbSortBy} ${sortOptions.sortOrder}
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+    `;
+    
+    const listValues = [...values, limit, offset];
+    const { rows } = await pool.query(query, listValues);
+
+    return { 
+        rows: humps.camelizeKeys(rows), 
+        count 
+    };
+};
+
 /**
-     * 생성 (Create)
-     * @param {Object} data 
-     * @param {Object} [client] - 외부 트랜잭션 클라이언트 (Optional)
-     */
-    async create(data, client) {
-        const db = client || pool;
+ * 상세 조회 (Find By ID)
+ * - 사이트 정보 + 바로 하위(DeviceControllers, Zones)의 요약 정보(id, name)만 포함
+ */
+exports.findById = async (id) => {
+    const query = `
+        SELECT 
+            s.*,
+            -- 1. Device Controllers (ID와 Name만 조회)
+            COALESCE(
+                (SELECT jsonb_agg(dc)
+                 FROM (
+                    SELECT id, name FROM pf_device_controllers 
+                    WHERE site_id = s.id
+                    ORDER BY name ASC
+                 ) dc
+                ), '[]'::jsonb
+            ) AS device_controllers,
 
-        const query = `
-            INSERT INTO pf_sites (
-                name, 
-                description, 
-                code, 
-                manager_name, 
-                manager_phone, 
-                phone, 
-                zip_code, 
-                address_base, 
-                address_detail, 
-                total_capacity, 
-                capacity_detail,
-                status
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING *
-        `;
-        
-        // capacityDetail 내부 키를 스네이크케이스로 변환 (예: evSlow -> ev_slow)
-        const capacityDetail = humps.decamelizeKeys(data.capacityDetail || {});
-        
-        const values = [
-            data.name, 
-            data.description, 
-            data.code,
-            data.managerName, 
-            data.managerPhone, 
-            data.phone,
-            data.zipCode, 
-            data.addressBase, 
-            data.addressDetail,
-            data.totalCapacity || 0, 
-            capacityDetail,
-            data.status
-        ];
+            -- 2. Zones (ID와 Name만 조회)
+            COALESCE(
+                (SELECT jsonb_agg(z)
+                 FROM (
+                    SELECT id, name FROM pf_zones 
+                    WHERE site_id = s.id
+                    ORDER BY name ASC
+                 ) z
+                ), '[]'::jsonb
+            ) AS zones
+        FROM pf_sites s
+        WHERE s.id = $1
+    `;
 
-        try {
-            
-            const { rows } = await db.query(query, values);
-            const newSiteId = rows[0].id;
+    const { rows } = await pool.query(query, [id]);
 
-            if (data.deviceControllerIdList && data.deviceControllerIdList.length > 0) {
-                const updateControllersQuery = `
-                    UPDATE pf_device_controllers 
-                    SET site_id = $1 
-                    WHERE id = ANY($2)
-                `;
-                await db.query(updateControllersQuery, [newSiteId, data.deviceControllerIdList]);
+    if (rows.length === 0) return null;
 
-                // 2. [추가] 해당 제어기에 연결된 장비(Devices)들의 site_id 업데이트
-                // 가정: pf_devices 테이블에 device_controller_id 컬럼이 존재함
-                const updateDevicesQuery = `
-                    UPDATE pf_devices
-                    SET site_id = $1
-                    WHERE device_controller_id = ANY($2)
-                `;
-                await db.query(updateDevicesQuery, [newSiteId, data.deviceControllerIdList]);
-            }
+    return humps.camelizeKeys(rows[0]);
+};
 
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
+/**
+ * 생성 (Create)
+ */
+exports.create = async (data, client = null) => {
+    const dbData = humps.decamelizeKeys(data);
+    const { name, description, code } = dbData;
 
-            await pool.query('ROLLBACK');
-            
-            // PostgreSQL Unique Violation Code: 23505
-            if (error.code === '23505') {
-                const conflictError = new Error('이미 존재하는 데이터입니다.');
-                conflictError.status = 409; // HTTP Status Code 설정
-                throw conflictError;
-            }
-            // PostgreSQL Foreign Key Violation Code: 23503 (참조 데이터 없음)
-            if (error.code === '23503') {
-                const notFoundError = new Error('참조하는 데이터가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
-        }
-    }
+    const query = `
+        INSERT INTO pf_sites (
+            name, description, code, created_at
+        )
+        VALUES ($1, $2, $3, NOW())
+        RETURNING id
+    `;
+    
+    const values = [name, description, code];
 
-    /**
-     * 다목적 목록 조회 (Find All)
-     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
-     * - JSONB 검색: capacity_detail 내부 필드에 대한 범위 검색 지원
-     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
-     * - 정렬 및 페이징 적용
-     */
-    async findAll(filters, sortOptions, limit, offset) {
-
-        let query = `SELECT s.* FROM pf_sites s`;
-
-        const whereClauses = [];
-        const values = [];
-        let paramIndex = 1;
-
-        // 부분 일치 검색을 허용할 텍스트 컬럼 목록 (스네이크케이스 기준)
-        const textColumns = [
-            'name', 'description', 'code', 
-            'manager_name', 'manager_phone', 'phone', 
-            'address_base', 'address_detail'
-        ];
-
-        // capacity_detail 내부 키 목록 (검색 허용 필드, 스네이크케이스)
-        const detailKeys = ['general', 'disabled', 'compact', 'ev_slow', 'ev_fast', 'women'];
-
-        // 동적 WHERE 절 생성
-        Object.keys(filters).forEach(key => {
-            const value = filters[key];
-            if (value === undefined || value === null || value === '') return;
-
-            // 1. 날짜 범위 검색 추가
-            if (key === 'createdAtStart') {
-                whereClauses.push(`s.created_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'createdAtEnd') {
-                whereClauses.push(`s.created_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtStart') {
-                whereClauses.push(`s.updated_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtEnd') {
-                whereClauses.push(`s.updated_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-
-            // 2. total_capacity 범위 검색
-            if (key === 'totalCapacityMin') {
-                whereClauses.push(`s.total_capacity >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-            } else if (key === 'totalCapacityMax') {
-                whereClauses.push(`s.total_capacity <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-            }
-            // 3. capacityDetail 내부 필드 범위 검색 (예: capacityDetailGeneralMin)
-            else if (key.startsWith('capacityDetail')) {
-                // 키 파싱: "capacityDetailGeneralMin" -> field="General", suffix="Min"
-                let temp = key.replace('capacityDetail', ''); 
-                let suffix = temp.endsWith('Min') ? 'Min' : 'Max';
-                let fieldCamel = temp.replace(suffix, ''); // "General", "EvSlow"
-                
-                // humps.decamelize를 사용하여 스네이크케이스로 변환 (EvSlow -> ev_slow)
-                const dbField = humps.decamelize(fieldCamel);
-                const operator = suffix === 'Min' ? '>=' : '<=';
-
-                if (detailKeys.includes(dbField)) {
-                    // JSONB 연산자 사용: (s.capacity_detail->>'ev_slow')::int >= 값
-                    whereClauses.push(`(s.capacity_detail->>'${dbField}')::int ${operator} $${paramIndex}`);
-                    values.push(value);
-                    paramIndex++;
-                }
-            }
-            // 4. 일반 필드 처리 (텍스트 ILIKE 또는 정확 일치)
-            else {
-                // 카멜케이스 키를 스네이크케이스 컬럼명으로 변환 (예: managerName -> manager_name)
-                const dbCol = humps.decamelize(key);
-
-                // 유효하지 않은 컬럼명(예: '0', 특수문자 등) 필터링하여 SQL Syntax Error 방지
-                if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) {
-                    return;
-                }
-
-                if (textColumns.includes(dbCol)) {
-                    whereClauses.push(`s.${dbCol} ILIKE $${paramIndex}`);
-                    values.push(`%${value}%`);
-                    paramIndex++;
-                } else {
-                    // textColumns에 없고 특수 로직이 아닌 경우 정확 일치로 간주 (isActive 등)
-                    // 실제 유효한 컬럼인지 확인하는 화이트리스트 검증 로직 추가 권장
-                    whereClauses.push(`s.${dbCol} = $${paramIndex}`);
-                    values.push(value);
-                    paramIndex++;
-                }
-            }
-        });
-
-        if (whereClauses.length > 0) {
-            query += ` WHERE ${whereClauses.join(' AND ')}`;
-        }
-
-        // 정렬 적용
-        let sortBy = sortOptions.sortBy || 'createdAt';
-        // 정렬 키를 스네이크케이스로 변환
-        const dbSortBy = humps.decamelize(sortBy);
-        
-        const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
-        query += ` ORDER BY s.${dbSortBy} ${sortOrder}`;
-
-        // 페이징 적용
-        query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-        values.push(limit, offset);
-
-        // 전체 개수 카운트 쿼리
-        const countQuery = `
-            SELECT COUNT(*) 
-            FROM pf_sites s 
-            ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
-        `;
-
-        const client = await pool.connect();
-        try {
-            const [countResult, rowsResult] = await Promise.all([
-                client.query(countQuery, values.slice(0, values.length - 2)),
-                client.query(query, values)
-            ]);
-
-            // 조회된 모든 행을 CamelCase 객체로 변환
-            const pf_sites = rowsResult.rows.map(row => humps.camelizeKeys(row));
-
-            return {
-                rows: pf_sites,
-                count: parseInt(countResult.rows[0].count)
-            };
-        } finally {
-            client.release();
-        }
-    }
-
-    /**
-     * 단일 조회 (Find Detail)
-     * - Device Controllers, Zones 목록을 포함해서 반환
-     */
-    async findById(id) {
-
-        const query = `
-            SELECT 
-                s.*,
-                
-                -- 1. Zones 정보 가져오기 (1:N)
-                (
-                    SELECT COALESCE(
-                        json_agg(
-                            json_build_object(
-                                'id', z.id,
-                                'name', z.name,
-                                'code', z.code,
-                                'description', z.description
-                            ) ORDER BY z.name ASC
-                        ), 
-                        '[]'
-                    )
-                    FROM pf_zones z 
-                    WHERE z.site_id = s.id
-                ) as zones,
-
-                -- 2. Device Controllers 정보 가져오기 (1:N 관계 수정)
-                -- [수정] 매핑 테이블(pf_site_device_controllers)을 제거하고 직접 조회로 변경
-                (
-                    SELECT COALESCE(
-                        json_agg(
-                            json_build_object(
-                                'id', dc.id,
-                                'name', dc.name,
-                                'type', dc.type,
-                                'ipAddress', dc.ip_address,
-                                'port', dc.port,
-                                'status', dc.status -- [수정] 문법 오류였던 콤마(,) 제거됨
-                            ) ORDER BY dc.name ASC
-                        ), 
-                        '[]'
-                    )
-                    FROM pf_device_controllers dc
-                    WHERE dc.site_id = s.id  -- [수정] site_id로 직접 연결
-                ) as device_controllers
-
-            FROM pf_sites s
-            WHERE s.id = $1
-        `;
-
-        const { rows } = await pool.query(query, [id]);
-
-        if (!rows.length) {
-            const notFoundError = new Error('해당하는 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
-
-        // DB snake_case -> JS camelCase 자동 변환
-        return rows[0] ? humps.camelizeKeys(rows[0]) : null;
-    }
-
-    /**
-     * 수정 (Update)
-     */
-    async update(id, data) {
-        const keys = Object.keys(data);
-        if (keys.length === 0) return null;
-
-        const setClauses = [];
-        const values = [id];
-        let valIndex = 2;
-
-        keys.forEach(key => {
-            // 키를 스네이크케이스 컬럼명으로 변환
-            const dbCol = humps.decamelize(key);
-
-            // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
-            if (['id', 'created_at'].includes(dbCol)) return;
-
-            let value = data[key];
-
-            // capacityDetail 필드는 내부 키들도 스네이크케이스로 변환해야 함
-            if (key === 'capacityDetail') {
-                value = humps.decamelizeKeys(value);
-            }
-
-            setClauses.push(`${dbCol} = $${valIndex}`);
-            values.push(value);
-            valIndex++;
-        });
-
-        // 유효한 업데이트 필드가 없으면 바로 리턴
-        if (setClauses.length === 0) return null;
-
-        const query = `
-            UPDATE pf_sites 
-            SET ${setClauses.join(', ')}, updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-        `;
-        
-        try {
-            const { rows } = await pool.query(query, values);
-            
-            // 업데이트할 대상이 없는 경우 (ID가 존재하지 않음)
-            if (rows.length === 0) {
-                const notFoundError = new Error('수정할 데이터를 찾을 수 없습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
-            // PostgreSQL Unique Violation Code: 23505
-            if (error.code === '23505') {
-                const conflictError = new Error('이미 존재하는 데이터입니다.');
-                conflictError.status = 409; 
-                throw conflictError;
-            }
-            // PostgreSQL Foreign Key Violation Code: 23503 (참조 데이터 없음)
-            if (error.code === '23503') {
-                const notFoundError = new Error('참조하는 데이터가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 삭제 (Delete)
-     */
-    async delete(id) {
-        const query = `DELETE FROM pf_sites WHERE id = $1 RETURNING id`;
-        
-        const { rows } = await pool.query(query, [id]);
-
-        if (rows.length === 0) {
-            const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
-        
+    const db = client || pool;
+    try {
+        const { rows } = await db.query(query, values);
         return humps.camelizeKeys(rows[0]);
+
+    } catch (error) {
+        // Unique Violation (이름 중복)
+        if (error.code === '23505') {
+            const conflictError = new Error('이미 존재하는 사이트 이름입니다.');
+            conflictError.status = 409;
+            throw conflictError;
+        }
+        throw error;
     }
+};
 
-    /**
-     * 트리 조회(Find Tree) 
-     */
-    async findTree(siteId) {
-        const query = `
-            SELECT 
-                s.*,
-                -- 1. 사이트에 소속된 제어기들 (Device Controllers)
-                COALESCE(
-                    (SELECT jsonb_agg(dc_tree)
-                    FROM (
-                        SELECT * FROM pf_device_controllers 
-                        WHERE site_id = s.id 
-                        ORDER BY name ASC
-                    ) dc_tree
-                    ), '[]'::jsonb
-                ) AS device_controllers,
-                
-                -- 2. 사이트 > 구역(Zones) > 차선(Lanes) > 장비(Devices) 계층 구조
-                COALESCE(
-                    (SELECT jsonb_agg(zone_tree)
-                    FROM (
-                        SELECT 
-                            z.*,
-                            COALESCE(
-                                (SELECT jsonb_agg(lane_tree)
-                                FROM (
-                                    SELECT 
-                                        l.*,
-                                        COALESCE(
-                                            (SELECT jsonb_agg(device_tree)
-                                            FROM (
-                                                SELECT * FROM pf_devices 
-                                                WHERE lane_id = l.id 
-                                                ORDER BY name ASC
-                                            ) device_tree
-                                            ), '[]'::jsonb
-                                        ) AS devices
-                                    FROM pf_lanes l
-                                    WHERE l.zone_id = z.id 
-                                    ORDER BY l.name ASC
-                                ) lane_tree
-                                ), '[]'::jsonb
-                            ) AS lanes
-                        FROM pf_zones z
-                        WHERE z.site_id = s.id
-                        ORDER BY z.name ASC
-                    ) zone_tree
-                    ), '[]'::jsonb
-                ) AS zones
-            FROM pf_sites s
-            WHERE s.id = $1;
-        `;
+/**
+ * 수정 (Update)
+ */
+exports.update = async (id, data, client = null) => {
+    if (!data || Object.keys(data).length === 0) return null;
 
-        const { rows } = await pool.query(query, [siteId]);
+    const dbData = humps.decamelizeKeys(data);
 
+    const updates = [];
+    const values = [id];
+    let paramIndex = 2;
+
+    // 수정 가능한 컬럼 목록 (Allowlist)
+    const ALLOWED_COLUMNS = ['name', 'description', 'code', 'status'];
+
+    Object.keys(dbData).forEach(key => {
+        if (ALLOWED_COLUMNS.includes(key)) {
+            updates.push(`${key} = $${paramIndex}`);
+            values.push(dbData[key]);
+            paramIndex++;
+        }
+    });
+
+    if (updates.length === 0) return null;
+    
+    updates.push(`updated_at = NOW()`);
+
+    const query = `
+        UPDATE pf_sites 
+        SET ${updates.join(', ')} 
+        WHERE id = $1 
+        RETURNING id
+    `;
+
+    const db = client || pool;
+    try {
+        const { rows } = await db.query(query, values);
+        
+        // 대상이 없으면 null 반환
         if (rows.length === 0) return null;
-
-        // humps를 통해 snake_case를 camelCase로 일괄 변환
+        
         return humps.camelizeKeys(rows[0]);
+
+    } catch (error) {
+        // Unique Violation (이름 중복 등)
+        if (error.code === '23505') {
+            const conflictError = new Error('이미 존재하는 사이트 이름입니다.');
+            conflictError.status = 409;
+            throw conflictError;
+        }
+        throw error;
     }
+};
 
-}
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (id, client = null) => {
+    const query = `DELETE FROM pf_sites WHERE id = $1 RETURNING id`;
+    
+    const db = client || pool;
+    const { rows } = await db.query(query, [id]);
 
-module.exports = SiteRepository;
+    if (rows.length === 0) return null;
+    
+    return humps.camelizeKeys(rows[0]);
+};
+
+/**
+ * 트리 조회 (Find Tree)
+ * - 사이트 > 제어기 
+ * - 사이트 > 구역 > 차선 > 장비 
+ */
+exports.findTree = async (siteId) => {
+    const query = `
+        SELECT 
+            s.*,
+            -- 1. 사이트(Site)에 소속된 제어기들 (Device Controllers)
+            COALESCE(
+                (SELECT jsonb_agg(dc_tree)
+                FROM (
+                    SELECT * FROM pf_device_controllers 
+                    WHERE site_id = s.id 
+                    ORDER BY name ASC
+                ) dc_tree
+                ), '[]'::jsonb
+            ) AS pf_device_controllers,
+            
+            -- 2. 사이트(Site) > 구역(Zone) > 차선(Lane) > 장비(Device) 계층 구조
+            COALESCE(
+                (SELECT jsonb_agg(zone_tree)
+                FROM (
+                    SELECT 
+                        z.*,
+                        COALESCE(
+                            (SELECT jsonb_agg(lane_tree)
+                            FROM (
+                                SELECT 
+                                    l.*,
+                                    COALESCE(
+                                        (SELECT jsonb_agg(device_tree)
+                                        FROM (
+                                            SELECT * FROM pf_devices 
+                                            WHERE lane_id = l.id 
+                                            ORDER BY name ASC
+                                        ) device_tree
+                                        ), '[]'::jsonb
+                                    ) AS devices
+                                FROM pf_lanes l
+                                WHERE l.zone_id = z.id 
+                                ORDER BY l.name ASC
+                            ) lane_tree
+                            ), '[]'::jsonb
+                        ) AS lanes
+                    FROM pf_zones z
+                    WHERE z.site_id = s.id
+                    ORDER BY z.name ASC
+                ) zone_tree
+                ), '[]'::jsonb
+            ) AS zones
+        FROM pf_sites s
+        WHERE s.id = $1
+    `;
+
+    const { rows } = await pool.query(query, [siteId]);
+
+    if (rows.length === 0) return null;
+
+    return humps.camelizeKeys(rows[0]);
+};

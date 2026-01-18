@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
+const errorHandler = require('../middlewares/error-handler');
+
 // =================================================================
 // 1. 관리자/운영 시스템용 라우트 임포트
 // =================================================================
@@ -23,29 +25,22 @@ const statisticsRoutes = require('./v1/statistics.routes');
 router.get('/v1/health', (req, res) => {
     res.json({
         service: 'Parking Service',
+        status: 'UP',
         version: '1.0.0',
-        documentation: '/api-docs',
-        endpoints: {
-            management: '/{prefix}/v1/{resource}',
-            pls_integration: '/{prefix}/{resource}'
-        }
+        timeStamp: new Date().toISOString()
     });
 });
 
 // -----------------------------------------------------------------
-// A. [Group 1] 운영/관리자용 API (v1 Router)
-// URL Pattern: /api/parkingFee/v1/...
+// v1 Router
 // -----------------------------------------------------------------
 const v1Router = express.Router();
 
-// 1. 기초 정보 관리 (Infrastructure)
 v1Router.use('/sites', siteRoutes);
 v1Router.use('/zones', zoneRoutes);
 v1Router.use('/lanes', laneRoutes);
 v1Router.use('/device-controllers', deviceControllerRoutes);
 v1Router.use('/devices', deviceRoutes);
-
-// 2. 운영 정보 관리 (Operation)
 v1Router.use('/members', memberRoutes);
 v1Router.use('/member-payment-histories', memberPaymentHistoryRoutes);
 v1Router.use('/blacklists', blacklistRoutes);
@@ -57,5 +52,18 @@ v1Router.use('/', statisticsRoutes);
 
 // v1 라우터를 '/v1' 경로에 마운트
 router.use('/v1', v1Router);
+
+// -----------------------------------------------------------------
+// Parking Fee 모듈 전용 에러 처리 (Isolation)
+// -----------------------------------------------------------------
+// 1. 404 Not Found 처리 (ParkingFee 경로 내에서 없는 주소 요청 시)
+router.use((req, res, next) => {
+    const error = new Error(`[ParkingFee] 요청하신 경로(${req.originalUrl})를 찾을 수 없습니다.`);
+    error.status = 404;
+    next(error);
+});
+
+// 2. ParkingFee 전용 에러 핸들러
+router.use(errorHandler);
 
 module.exports = router;

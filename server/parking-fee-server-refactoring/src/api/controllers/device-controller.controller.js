@@ -1,168 +1,96 @@
-const DeviceControllerService = require('../../services/device-controller.service');
-const service = new DeviceControllerService();
+const deviceControllerService = require('../../services/device-controller.service');
+const socketService = require('../../services/socket.service');
 
 /**
- * Device Controller Controller
- * - 장비 제어 서비스(Device Controller) 관련 HTTP 요청 처리
+ * 목록 조회 (Find All)
  */
-class DeviceControllerController {
-    /**
-     * 생성 (Create)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async create(req, res, next) {
-        try {
-            const data = await service.create(req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ status: 'OK', data });
-        } catch (error) {
-            next(error);
-        }
+exports.findAll = async (req, res, next) => {
+    try {
+        const data = await deviceControllerService.findAll(req.query);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 목록 조회 (Find All)
-     * - 검색, 정렬, 페이징 처리가 적용된 목록을 반환합니다.
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async findAll(req, res, next) {
-        try {
-            const params = req.query;
-            const data = await service.findAll(params);
-            res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 상세 조회 (Find Detail)
+ */
+exports.findDetail = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const data = await deviceControllerService.findDetail(id);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 상세 조회 (Find Detail)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async findDetail(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await service.findDetail(id);
-            res.status(200).json({ status: 'OK', data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 생성 (Create)
+ */
+exports.create = async (req, res, next) => {
+    try {
+        await deviceControllerService.create(req.body);
+        socketService.emitZoneRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });            
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 수정 (Update)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async update(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await service.update(id, req.body);
-
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ status: 'OK', data: data });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 수정 (Update)
+ */
+exports.update = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await deviceControllerService.update(id, req.body);
+        socketService.emitZoneRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 삭제 (Delete)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async delete(req, res, next) {
-        try {
-            const { id } = req.params;
-            
-            const data = await service.delete(id);
-            
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': 1 }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ 
-            //     status: 'OK', 
-            //     message: '성공적으로 삭제되었습니다.',
-            //     data: {
-            //         id: data.id
-            //     }
-            // });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await deviceControllerService.delete(id);
+        socketService.emitZoneRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
     }
+};
 
-    /**
-     * 다중 삭제 (Delete)
-     * @param {Object} req - Express request object
-     * @param {Object} res - Express response object
-     * @param {Function} next - Express next middleware function
-     */
-    async deleteMultiple(req, res, next) {
-        try {
-            const { deviceControllerIdList } = req.body;
-
-            const data = await service.deleteMultiple(deviceControllerIdList);
-            
-            // 옵저버 요청에 맞춘 반환 형식
-            if((data) && (data.rowCount > 0) && (global.websocket)) {
-                global.websocket.emit("pf_parkings-update", { deviceControllersCount: { 'add': data.rowCount }});
-            }
-            res.status(200).json({ status: 'OK' });
-
-            // res.status(200).json({ 
-            //     status: 'OK', 
-            //     message: 'Device Controller deleted successfully',
-            //     data: {
-            //         id: id,
-            //         deleteType: result.isHardDelete ? 'HARD' : 'SOFT'
-            //     }
-            // });
-        } catch (error) {
-            next(error);
-        }
+/**
+ * 다중 삭제 (Multiple Delete)
+ */
+exports.multipleDelete = async (req, res, next) => {
+    try {
+        const { ids } = req.body;
+        await deviceControllerService.multipleDelete(ids);
+        socketService.emitZoneRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
     }
-    
-    /**
-     * 장비 수동 동기화 (Manual Sync)
-     */
-    async sync(req, res, next) {
-        try {
-            const { id } = req.params;
-            const data = await service.syncDevices(id);
-
-            res.status(200).json({ 
-                status: 'OK', 
-                message: '장비 동기화가 완료되었습니다.', 
-                data: data 
-            });
-        } catch (error) {
-            next(error);
-        }
-    }
-
 }
 
-module.exports = new DeviceControllerController();
+/**
+ * 수동 동기화 (Manual Sync)
+ */
+exports.sync = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await deviceControllerService.sync(id);
+        socketService.emitZoneRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });
+    } catch (error) {
+        next(error);
+    }
+}

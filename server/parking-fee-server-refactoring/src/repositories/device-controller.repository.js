@@ -309,3 +309,104 @@ class DeviceControllerRepository {
 }
 
 module.exports = DeviceControllerRepository;
+
+
+
+
+
+
+
+
+
+// !! 수정 중
+
+/**
+ * 사이트에 일괄 할당 (Assign To Site)
+ * - 여러 제어기의 site_id를 한 번에 업데이트
+ */
+exports.assignToSite = async (siteId, controllerIds, client = null) => {
+    if (!controllerIds || controllerIds.length === 0) return;
+
+    const query = `
+        UPDATE pf_device_controllers
+        SET site_id = $1, updated_at = NOW()
+        WHERE id = ANY($2::uuid[])
+    `;
+
+    const db = client || pool;
+    await db.query(query, [siteId, controllerIds]);
+};
+
+/**
+ * 사이트 연결 관계 수정 (Update Relation)
+ * - 특정 제어기를 사이트에 연결(ADD)하거나 해제(REMOVE)
+ */
+exports.updateSiteRelation = async (siteId, controllerId, action, client = null) => {
+    let query = '';
+    
+    if (action === 'ADD') {
+        query = `
+            UPDATE pf_device_controllers
+            SET site_id = $1, updated_at = NOW()
+            WHERE id = $2
+        `;
+    } else if (action === 'REMOVE') {
+        // 안전장치: 현재 해당 사이트에 연결된 녀석만 해제 가능
+        query = `
+            UPDATE pf_device_controllers
+            SET site_id = NULL, updated_at = NOW()
+            WHERE id = $2 AND site_id = $1
+        `;
+    } else {
+        return;
+    }
+
+    const db = client || pool;
+    await db.query(query, [siteId, controllerId]);
+};
+
+/**
+ * 페이징 없는 전체 조회 (스케줄러 / 내부 로직용)
+ */
+exports.findAllWithoutPagination = async (filters, sortOptions) => {
+    const dbSortBy = humps.decamelize(sortOptions.sortBy || 'id');
+    const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+
+    const conditions = [];
+    const values = [];
+
+    // 필터 처리 (기존 findAll과 동일하게 필요한 만큼 구현)
+    if (filters.siteId) {
+        conditions.push(`site_id = $${values.length + 1}`);
+        values.push(filters.siteId);
+    }
+    
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
+        SELECT * FROM pf_device_controllers
+        ${whereClause}
+        ORDER BY ${dbSortBy} ${sortOrder}
+    `;
+    
+    // 페이징(LIMIT/OFFSET) 없이 실행
+    const { rows } = await pool.query(query, values);
+
+    return { 
+        rows: humps.camelizeKeys(rows), 
+        count: rows.length 
+    };
+};
+
+/**
+ * 여러 ID로 조회 (Validation 용)
+ */
+exports.findByIds = async (ids) => {
+    if (!ids || ids.length === 0) return [];
+    
+    // ANY($1)을 사용하여 배열 내 ID 검색
+    const query = `SELECT * FROM pf_device_controllers WHERE id = ANY($1::uuid[])`;
+    const { rows } = await pool.query(query, [ids]);
+    
+    return humps.camelizeKeys(rows);
+};

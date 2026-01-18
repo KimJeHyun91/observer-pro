@@ -349,3 +349,31 @@ class DeviceRepository {
 }
 
 module.exports = DeviceRepository;
+
+
+
+
+
+
+
+/**
+ * [이동됨] 차선에 장비 할당 (Assign Devices to Lane)
+ * - 기존 연결 해제 후 새로운 장비 연결
+ */
+exports.assignToLane = async (laneId, deviceIds, client = null) => {
+    const db = client || pool;
+
+    // 1. 해당 차선에 연결된 모든 장비 해제 (초기화)
+    await db.query(
+        'UPDATE pf_devices SET lane_id = NULL, updated_at = NOW() WHERE lane_id = $1', 
+        [laneId]
+    );
+
+    // 2. 새로운 장비들 연결
+    if (deviceIds && deviceIds.length > 0) {
+        await db.query(
+            'UPDATE pf_devices SET lane_id = $1, updated_at = NOW() WHERE id = ANY($2::uuid[])',
+            [laneId, deviceIds]
+        );
+    }
+};

@@ -184,7 +184,6 @@ class ParkingSessionController {
         const discountPolicyIds = (session.appliedDiscounts || [])
             .map(d => d.policyId)
             .filter(id => id);
-
         // 4. 구조 생성
         return {
             direction: direction, // "IN" or "OUT"
@@ -195,12 +194,13 @@ class ParkingSessionController {
             devicePort: 0, 
 
             imageUrl: imageUrl || null,
-            eventTime: eventTime ? new Date(eventTime).toISOString() : null,
+            eventTime: session.entryTime  ? new Date(session.entryTime ).toISOString() : null,
             
             // [중요] INTEGRATED_GATE 위치 정보 (없으면 LaneName)
             location: location || 'Unknown',
             
             carNumber: session.carNumber,
+            vehicleType: session.vehicleType,
             
             totalFee: session.totalFee || 0,
             discountPolicyIds: discountPolicyIds,
@@ -218,7 +218,7 @@ class ParkingSessionController {
     // [Private Helper] Standard Response DTO (Existing Format)
     // =================================================================
     _toResponseDTO(session) {
-        if (!session) return null;
+        if (!session) return null;        
         
         return {
             id: session.id,

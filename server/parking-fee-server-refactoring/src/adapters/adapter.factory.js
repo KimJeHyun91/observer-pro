@@ -1,6 +1,6 @@
 const DeviceControllerRepository = require('../repositories/device-controller.repository');
 const PlsAdapter = require('./pls/pls.adapter');
-const logger = require('../../../logger'); 
+const logger = require('../../../logger');
 
 /**
  * ==============================================================================

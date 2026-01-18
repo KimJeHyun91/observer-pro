@@ -1,4 +1,4 @@
-const PlsService = require('./pls.service');
+const plsService = require('./pls.service');
 const logger = require('../../../../logger');
 
 /**
@@ -14,7 +14,6 @@ const logger = require('../../../../logger');
 class PlsController {
 
     constructor() {
-        this.plsService = new PlsService();
     }
 
     /**

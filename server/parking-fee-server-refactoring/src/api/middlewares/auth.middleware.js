@@ -1,58 +1,71 @@
 const jwt = require('jsonwebtoken');
 
+// 보안: 시크릿 키는 환경 변수(process.env)에서 가져오는 것이 원칙입니다.
+// 현재는 'observer'를 사용하지만, 배포 환경에서는 반드시 환경 변수를 설정해야 합니다.
+const JWT_SECRET = process.env.JWT_SECRET || 'observer';
+
+/**
+ * JWT 토큰 검증 미들웨어
+ * 요청 헤더(Authorization)에서 Bearer 토큰을 추출하여 유효성을 검사합니다.
+ */
 exports.verifyToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer Token
+    const authHeader = req.headers['authorization'];
+    // Optional Chaining(?.)을 사용하여 authHeader가 없을 때 에러 방지
+    const token = authHeader?.split(' ')[1]; 
 
-  if (!token) return res.status(401).json({ message: 'Access Denied' });
-
-  try {
-    const secret = 'observer'; // auth.js와 동일한 시크릿 키 사용
-    const decoded = jwt.verify(token, secret);
-    
-    // decoded 객체에는 이제 { id, role, logindatetime, ... }이 들어있음
-    req.user = decoded; 
-    
-    // 관리자(admin)라면 모든 권한 허용 (필요에 따라 로직 조정)
-    if (req.user.role === 'admin') {
-        req.isAdmin = true;
+    if (!token) {
+        const err = new Error('토큰이 존재하지 않습니다.');
+        err.status = 401;
+        return next(err);
     }
 
-    next();
-  } catch (error) {
-    res.status(403).json({ message: 'Invalid Token' });
-  }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        console.log('111111')
+
+        console.log(decoded)
+
+        // 검증된 사용자 정보를 req.user에 저장 ({ id, role, ... })
+        req.user = decoded;
+
+        next();
+    } catch (error) {
+        const err = new Error('유효하지 않은 토큰입니다.');
+        err.status = 401; 
+        return next(err);      
+    }
 };
 
 /**
- * 역할 기반 접근 제어 미들웨어
- * @param {string[]} allowedRoles - 허용할 역할들의 배열 (반드시 배열이어야 함)
- * 예: checkRole(['admin']), checkRole(['admin', 'user'])
+ * 역할 기반 접근 제어(RBAC) 미들웨어 Factory
+ * @param {string[]} allowedRoles - 접근을 허용할 역할 배열 (예: ['admin', 'user'])
+ * @returns {Function} Express Middleware
  */
-exports.checkRole = (allowedRoles) => {
+exports.restrictTo = (allowedRoles) => {
     return (req, res, next) => {
-        // 0. 개발자 실수 방지: 인자가 배열이 아니면 500 에러 발생
+        // 0. 개발자 설정 오류 방지
         if (!Array.isArray(allowedRoles)) {
-            const error = new Error('Server Configuration Error: checkRole middleware requires an array of roles.');
-            error.status = 500; 
-            return next(error);
+            const err = new Error('Server Configuration Error: allowedRoles must be an array.');
+            err.status = 500; 
+            return next(err);
+        }
+        console.log(`!!!!!!!!!!!!!!!: ${req.user.userId}`)
+        // 1. 인증 정보 확인 (verifyToken 미들웨어 통과 여부)
+        if (!req.user) {
+            
+            const err = new Error('인증 정보가 유효하지 않습니다.');
+            err.status = 401;
+            return next(err);
         }
 
-        // 1. verifyToken을 거쳤는지 확인 (토큰 유효성)
-        if (!req.user || !req.user.role) {
-            const error = new Error('인증 정보가 유효하지 않습니다.');
-            error.status = 401;
-            return next(error);
-        }
-
-        // 2. 현재 유저의 role이 허용된 목록에 있는지 확인
+        // 2. 권한 확인
         if (!allowedRoles.includes(req.user.role)) {
-            const error = new Error('해당 기능에 대한 접근 권한이 없습니다.');
-            error.status = 403; // Forbidden
-            return next(error);
+            const err = new Error('해당 기능에 대한 접근 권한이 없습니다.');
+            err.status = 403; 
+            return next(err);        
         }
 
-        // 3. 권한 있음 -> 통과
+        // 3. 권한 승인
         next();
     };
 };
