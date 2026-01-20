@@ -33,6 +33,7 @@ exports.create = async (req, res, next) => {
     try {
         await laneService.create(req.body);
         socketService.emitLaneRefresh();
+        socketService.emitZoneRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });            
     } catch (error) {
         next(error);
@@ -47,6 +48,7 @@ exports.update = async (req, res, next) => {
         const { id } = req.params;
         await laneService.update(id, req.body);
         socketService.emitLaneRefresh();
+        socketService.emitZoneRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);
@@ -61,6 +63,7 @@ exports.delete = async (req, res, next) => {
         const { id } = req.params;
         await laneService.delete(id);
         socketService.emitLaneRefresh();
+        socketService.emitZoneRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);

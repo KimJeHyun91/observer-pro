@@ -2,279 +2,188 @@ const { pool } = require('../../../db/postgresqlPool');
 const humps = require('humps');
 
 /**
- * Blacklist Repository
- * - pf_blacklists 테이블 CRUD
- * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
+ * 목록 조회 (Find All)
  */
-class BlacklistRepository {
+exports.findAll = async (filters, sortOptions, limit, offset) => {
+    const SORT_MAPPING = {
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+        siteId: 'site_id',
+        carNumber: 'car_number'
+    };
+    const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
 
-    /**
-     * 생성 (Create)
-     */
-    async create(data) {
-        const query = `
-            INSERT INTO pf_blacklists (site_id, car_number, reason)
-            VALUES ($1, $2, $3)
-            RETURNING *
-        `;
+    const conditions = [];
+    const values = [];
 
-        const values = [
-            data.siteId,
-            data.carNumber,
-            data.reason || null
-        ];
-
-        try {
-            const { rows } = await pool.query(query, values);
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
-            if (error.code === '23505') { // Unique Violation (site_id + car_number)
-                const conflictError = new Error('해당 사이트에 이미 등록된 차량 번호입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            if (error.code === '23503') { // FK Violation (site_id)
-                const notFoundError = new Error('존재하지 않는 사이트 ID입니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
-        }
+    // 1. 필터 조건 생성
+    if (filters.siteId) {
+        conditions.push(`site_id = $${values.length + 1}`);
+        values.push(filters.siteId);
+    }
+    if (filters.carNumber) {
+        conditions.push(`car_number ILIKE $${values.length + 1}`);
+        values.push(`%${filters.carNumber}%`);
+    }
+    if (filters.reason) {
+        conditions.push(`reason = $${values.length + 1}`);
+        values.push(filters.reason);
     }
 
-    /**
-     * 다목적 목록 조회 (Find All)
-     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
-     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
-     * - 정렬 및 페이징 적용
-     */
-    async findAll(filters, sortOptions, limit, offset) {
-        let query = `SELECT b.* FROM pf_blacklists b`;
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        const whereClauses = [];
-        const values = [];
-        let paramIndex = 1;
+    // 2. 카운트 쿼리
+    const countQuery = `SELECT COUNT(*) FROM pf_blacklists ${whereClause}`;
+    const countResult = await pool.query(countQuery, values);
+    const count = countResult.rows[0].count;
 
-        // 부분 검색이 가능한 텍스트 컬럼
-        const textColumns = ['car_number', 'reason'];
-        // 정확히 일치해야 하는 컬럼
-        const exactColumns = ['id', 'site_id'];
+    // 3. 데이터 조회 쿼리
+    const query = `
+        SELECT id, site_id, car_number, reason, created_at, updated_at FROM pf_blacklists
+        ${whereClause}
+        ORDER BY ${dbSortBy} ${sortOptions.sortOrder}
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+    `;
+    
+    const listValues = [...values, limit, offset];
+    const { rows } = await pool.query(query, listValues);
 
-        Object.keys(filters).forEach(key => {
-            const value = filters[key];
-            if (value === undefined || value === null || value === '') return;
+    return { 
+        rows: humps.camelizeKeys(rows), 
+        count: parseInt(count) 
+    };
+};
 
-            // 1. 날짜 범위 검색
-            if (key === 'createdAtStart') {
-                whereClauses.push(`b.created_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'createdAtEnd') {
-                whereClauses.push(`b.created_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtStart') {
-                whereClauses.push(`b.updated_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtEnd') {
-                whereClauses.push(`b.updated_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
+/**
+ * 상세 조회 (Find By ID)
+ * - 장비 정보
+ */
+exports.findById = async (id) => {
+    const query = `SELECT * FROM pf_blacklists WHERE id = $1`;
 
-            // 2. 일반 컬럼 검색
-            const dbCol = humps.decamelize(key);
+    const { rows } = await pool.query(query, [id]);
+    
+    if (rows.length === 0) return null;
 
-            // 유효성 검사 (SQL Injection 방지)
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
+    return humps.camelizeKeys(rows[0]);
+};
 
-            if (textColumns.includes(dbCol)) {
-                whereClauses.push(`b.${dbCol} ILIKE $${paramIndex}`);
-                values.push(`%${value}%`);
-                paramIndex++;
-            } else if (exactColumns.includes(dbCol)) {
-                whereClauses.push(`b.${dbCol} = $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-            }
-        });
+/**
+ * 생성 (Create)
+ */
+exports.create = async (data) => {
+    const query = `
+        INSERT INTO pf_blacklists (site_id, car_number, reason)
+        VALUES ($1, $2, $3)
+        RETURNING *
+    `;
 
-        if (whereClauses.length > 0) {
-            query += ` WHERE ${whereClauses.join(' AND ')}`;
+    const values = [
+        data.siteId,
+        data.carNumber,
+        data.reason || null
+    ];
+
+    try {
+        const { rows } = await pool.query(query, values);
+        return humps.camelizeKeys(rows[0]);
+    } catch (error) {
+        if (error.code === '23505') { 
+            const conflictError = new Error('해당 사이트에 이미 등록된 차량 번호입니다.');
+            conflictError.status = 409;
+            throw conflictError;
         }
-
-        // 정렬 적용
-        let sortBy = sortOptions.sortBy || 'createdAt';
-        const dbSortBy = humps.decamelize(sortBy);
-        const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
-
-        query += ` ORDER BY b.${dbSortBy} ${sortOrder}`;
-
-        // 페이징 적용
-        query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-        values.push(limit, offset);
-
-        // 카운트 쿼리
-        const countQuery = `
-            SELECT COUNT(*) 
-            FROM pf_blacklists b
-            ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
-        `;
-
-        const client = await pool.connect();
-        try {
-            const [countResult, rowsResult] = await Promise.all([
-                client.query(countQuery, values.slice(0, values.length - 2)),
-                client.query(query, values)
-            ]);
-
-            const list = rowsResult.rows.map(row => humps.camelizeKeys(row));
-
-            return {
-                rows: list,
-                count: parseInt(countResult.rows[0].count)
-            };
-        } finally {
-            client.release();
-        }
-    }
-
-    /**
-     * 단일 조회 (Find By ID)
-     */
-    async findById(id) {
-        const query = `SELECT * FROM pf_blacklists WHERE id = $1`;
-        const { rows } = await pool.query(query, [id]);
-
-        if (!rows[0]) {
-            const notFoundError = new Error('해당하는 블랙리스트 데이터를 찾을 수 없습니다.');
+        if (error.code === '23503') { 
+            const notFoundError = new Error('존재하지 않는 사이트 ID입니다.');
             notFoundError.status = 404;
             throw notFoundError;
         }
-
-        return humps.camelizeKeys(rows[0]);
+        throw error;
     }
-
-    /**
-     * 블랙리스트 차량 여부 확인 (Check Logic)
-     * - 특정 사이트 혹은 전역(site_id IS NULL) 블랙리스트 체크
-     */
-    async checkBlacklist(siteId, carNumber) {
-        const query = `
-            SELECT * FROM pf_members 
-            WHERE site_id = $1 
-            AND car_number = $2 -- 여기가 car_number 여야 합니다 (id X)
-            LIMIT 1
-        `;
-        const values = [siteId, carNumber];
-
-        try {
-            const { rows } = await pool.query(query, values);
-            return rows[0] ? humps.camelizeKeys(rows[0]) : null;
-        } catch (error) {
-            throw error;
-        }
-    }
-
-    /**
-     * 수정 (Update)
-     */
-    async update(id, data) {
-        if (Array.isArray(data)) {
-            console.warn('[BlacklistRepository.update] Data received is an Array. Please send an Object.');
-            if (data.length > 0 && typeof data[0] === 'object') {
-                data = data[0];
-            } else {
-                return null;
-            }
-        }
-
-        const keys = Object.keys(data);
-        if (keys.length === 0) return null;
-
-        const setClauses = [];
-        const values = [id];
-        let valIndex = 2;
-
-        keys.forEach(key => {
-            const dbCol = humps.decamelize(key);
-
-            // 유효하지 않은 컬럼명 무시 (스키마 기반)
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) {
-                return;
-            }
-            
-            // 변경 불가능한 컬럼(id 등) 제외 로직이 필요하다면 여기에 추가
-            if (dbCol === 'id' || dbCol === 'created_at') return;
-
-            setClauses.push(`${dbCol} = $${valIndex}`);
-            values.push(data[key]);
-            valIndex++;
-        });
-
-        if (setClauses.length === 0) {
-            console.warn('[BlacklistRepository.update] No valid fields to update. Returning null.');
-            return null;
-        }
-
-        const query = `
-            UPDATE pf_blacklists 
-            SET ${setClauses.join(', ')}, updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-        `;
-
-        try {
-            const { rows } = await pool.query(query, values);
-
-            if (rows.length === 0) {
-                const notFoundError = new Error('수정할 데이터를 찾을 수 없습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
-            if (error.code === '23505') {
-                const conflictError = new Error('해당 사이트에 이미 등록된 차량 번호입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            if (error.code === '23503') {
-                const notFoundError = new Error('참조하는 사이트가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
-        }
-    }
-
-    /**
-     * 삭제 (Delete)
-     * - 물리적 삭제 (Hard Delete)
-     */
-    async delete(id) {
-        const query = `DELETE FROM pf_blacklists WHERE id = $1 RETURNING id`;
-        
-        const { rows } = await pool.query(query, [id]);
-        
-        if (rows.length === 0) {
-            const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
-
-        return humps.camelizeKeys(rows[0]);
-    }
-
 }
 
-module.exports = BlacklistRepository;
+/**
+ * 수정 (Update)
+ */
+exports.update = async (id, data, client = null) => {
+    if (!data || Object.keys(data).length === 0) return null;
+
+    const dbData = humps.decamelizeKeys(data);
+
+    const updates = [];
+    const values = [id];
+    let paramIndex = 2;
+
+    const ALLOWED_COLUMNS = [
+        'site_id',
+        'car_number',
+        'reason'        
+    ];
+
+    Object.keys(dbData).forEach(key => {
+        if (ALLOWED_COLUMNS.includes(key)) {
+            updates.push(`${key} = $${paramIndex}`);
+            values.push(dbData[key]);
+            paramIndex++;
+        }
+    });
+
+    if (updates.length === 0) return null; // 업데이트 할 필드가 없음
+
+    updates.push(`updated_at = NOW()`);
+
+    const query = `
+        UPDATE pf_blacklists 
+        SET ${updates.join(', ')} 
+        WHERE id = $1 
+        RETURNING id
+    `;
+
+    const db = client || pool;
+
+    try {
+        const { rows } = await db.query(query, values);
+
+        if (rows.length === 0) return null;
+        
+        return humps.camelizeKeys(rows[0]);
+
+    } catch (error) {
+        if (error.code === '23505') {
+            const conflictError = new Error('이미 존재하는 차량번호입니다.');
+            conflictError.status = 409;
+            throw conflictError;
+        }
+        throw error;
+    }
+};
+
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (id, client = null) => {
+    const query = `DELETE FROM pf_blacklists WHERE id = $1 RETURNING id`;
+    
+    const db = client || pool;
+    const { rows } = await db.query(query, [id]);
+
+    if (rows.length === 0) return null;
+
+    return humps.camelizeKeys(rows[0]);
+};
+
+/**
+ * 차량 번호로 블랙리스트 검색
+ */
+exports.findByCarNumber = async (siteId, carNumber) => {
+    const query = `
+        SELECT id FROM pf_blacklists 
+        WHERE site_id = $1 
+        AND car_number = $2
+        LIMIT 1
+    `;
+    const values = [siteId, carNumber];
+
+    const { rows } = await pool.query(query, values);
+    return rows[0] ? rows[0] : null;
+}

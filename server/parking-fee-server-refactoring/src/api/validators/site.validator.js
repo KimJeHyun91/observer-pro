@@ -107,13 +107,6 @@ exports.updateSite = [
     body('deviceControllerId')
         .optional()
         .isUUID().withMessage('deviceControllerId는 UUID 형식이어야 합니다.'),
-    
-    body('updateAction')
-        .if(body('deviceControllerId').exists())
-        .notEmpty().withMessage('deviceControllerId를 변경하려면 updateAction(ADD/REMOVE)이 필수입니다.')
-        .toUpperCase()
-        .isIn(['ADD', 'REMOVE'])
-        .withMessage("updateAction은 'ADD' 또는 'REMOVE'여야 합니다."),
 
     body('status')
         .optional()

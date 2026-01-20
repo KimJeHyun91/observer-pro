@@ -10,31 +10,31 @@ const logger = require('../../../logger');
 cron.schedule('*/30 * * * * *', async () => {
     try {
         // 1. 모든 장비 제어기 가져오기
-        const { rows: controllers } = await deviceControllerRepository.findAllWithoutPagination({}, { sortBy: 'id' });
+        const { rows: deviceControllers } = await deviceControllerRepository.findAllWithoutPagination({}, { sortBy: 'id' });
 
         // 변경된 사이트 ID를 모아두는 Set (중복 계산 방지)
         const affectedSiteIds = new Set();
 
         // 2. 병렬로 Health Check 수행
-        const checks = controllers.map(async (controller) => {
+        const checks = deviceControllers.map(async (deviceController) => {
             try {
-                const adapter = await adapterFactory.getAdapter(controller.id);
+                const adapter = await adapterFactory.getAdapter(deviceController.id);
                 const isHealthy = await adapter.checkHealth();
                 
                 const newDeviceStatus = isHealthy ? 'ONLINE' : 'OFFLINE';
 
                 // 3. 상태가 변했으면 장비 DB 업데이트
-                if (controller.status !== newDeviceStatus) {
-                    await deviceControllerRepository.update(controller.id, { status: newDeviceStatus });
+                if (deviceController.status !== newDeviceStatus) {
+                    await deviceControllerRepository.update(deviceController.id, { status: newDeviceStatus });
                     
                     // 상태가 변한 장비가 소속된 사이트 ID를 기록
-                    if (controller.siteId) {
-                        affectedSiteIds.add(controller.siteId);
+                    if (deviceController.siteId) {
+                        affectedSiteIds.add(deviceController.siteId);
                     }
                 }
             } catch (err) {
                 // 특정 장비 에러가 전체 스케줄러를 멈추게 하면 안 됨
-                logger.error(`[Scheduler] Device Check Error (ID: ${controller.id}):`, err.message);
+                logger.error(`[Scheduler] Device Check Error (ID: ${deviceController.id}):`, err.message);
             }
         });
 

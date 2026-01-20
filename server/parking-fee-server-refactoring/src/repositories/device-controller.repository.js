@@ -2,330 +2,250 @@ const { pool } = require('../../../db/postgresqlPool');
 const humps = require('humps');
 
 /**
- * Device Controller Repository
- * - pf_device_controllers 테이블 CRUD
- * - CamelCase <-> SnakeCase 변환 및 JSONB 필드 처리 포함
+ * 목록 조회 (Find All)
  */
-class DeviceControllerRepository {
+exports.findAll = async (filters, sortOptions, limit, offset) => {
+    const SORT_MAPPING = {
+        createdAt: 'created_at',
+        updatedAt: 'updated_at',
+        siteId: 'site_id',
+        name: 'name',
+        code: 'code'
+    };
+    const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
     
-    /**
-     * 생성 (Create)
-     */
-    async create(data) {
-        const query = `
-            INSERT INTO pf_device_controllers (
-                site_id,
-                name, 
-                description, 
-                code,
-                type, 
-                ip_address, 
-                port, 
-                status, 
-                config
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *
-        `;
-        
-        const values = [
-            data.siteId,
-            data.name, 
-            data.description || null, 
-            data.code || null,
-            data.type || 'SERVER',
-            data.ipAddress || null, 
-            data.port || 80, 
-            'OFFLINE', // 초기 상태
-            data.config || {}
-        ];
+    // 1. 동적 WHERE 절 생성 (조건 하나씩 명시)
+    const conditions = [];
+    const values = [];
 
-        try {
-            const { rows } = await pool.query(query, values);
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
-            if (error.code === '23505') { // Unique Violation
-                const conflictError = new Error('이미 존재하는 데이터입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            if (error.code === '23503') { // FK Violation (site_id 없음)
-                const notFoundError = new Error('참조하는 사이트 데이터가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
-        }
+    // (1) 주차장 ID 검색 (Exact Match)
+    if (filters.siteId) {
+        conditions.push(`site_id = $${values.length + 1}`);
+        values.push(`%${filters.siteId}%`);
     }
 
-    /**
-     * 다목적 목록 조회 (Find All)
-     * - 검색: 텍스트 컬럼은 ILIKE(부분일치), 숫자형은 범위(_min, _max) 및 일치 검색
-     * - 날짜 검색: createdAt, updatedAt 범위 검색 지원
-     * - 정렬 및 페이징 적용
-     */
-    async findAll(filters, sortOptions, limit, offset) {
-
-        let query = `SELECT dc.* FROM pf_device_controllers dc`;
-
-        const whereClauses = [];
-        const values = [];
-        let paramIndex = 1;
-
-        const textColumns = ['name', 'description', 'code', 'status'];
-        const exactColumns = ['id', 'port'];
-
-        Object.keys(filters).forEach(key => {
-            const value = filters[key];
-            if (value === undefined || value === null || value === '') return;
-
-            // 1. 날짜 범위 검색
-            if (key === 'createdAtStart') {
-                whereClauses.push(`dc.created_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'createdAtEnd') {
-                whereClauses.push(`dc.created_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtStart') {
-                whereClauses.push(`dc.updated_at >= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-            if (key === 'updatedAtEnd') {
-                whereClauses.push(`dc.updated_at <= $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-                return;
-            }
-
-            // 2. 일반 컬럼 검색
-            const dbCol = humps.decamelize(key);
-
-            // 유효성 검사
-            if (!/^[a-z][a-z0-9_]*$/.test(dbCol)) return;
-
-            if (textColumns.includes(dbCol)) {
-                whereClauses.push(`dc.${dbCol} ILIKE $${paramIndex}`);
-                values.push(`%${value}%`);
-                paramIndex++;
-            } else if (dbCol === 'ip_address') {
-                // IP 주소는 inet 타입일 수 있으므로 text로 캐스팅하여 부분 검색 지원
-                whereClauses.push(`dc.ip_address::text ILIKE $${paramIndex}`);
-                values.push(`%${value}%`);
-                paramIndex++;
-            } else if (exactColumns.includes(dbCol)) {
-                whereClauses.push(`dc.${dbCol} = $${paramIndex}`);
-                values.push(value);
-                paramIndex++;
-            }
-        });
-
-        if (whereClauses.length > 0) {
-            query += ` WHERE ${whereClauses.join(' AND ')}`;
-        }
-
-        // 정렬 적용
-        let sortBy = sortOptions.sortBy || 'createdAt';
-        const dbSortBy = humps.decamelize(sortBy);
-        const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
-        
-        query += ` ORDER BY dc.${dbSortBy} ${sortOrder}`;
-
-        // 페이징 적용
-        query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-        values.push(limit, offset);
-
-        // 카운트 쿼리
-        const countQuery = `
-            SELECT COUNT(*) 
-            FROM pf_device_controllers dc 
-            ${whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : ''}
-        `;
-
-        const client = await pool.connect();
-        try {
-            const [countResult, rowsResult] = await Promise.all([
-                client.query(countQuery, values.slice(0, values.length - 2)),
-                client.query(query, values)
-            ]);
-
-            const deviceControllers = rowsResult.rows.map(row => humps.camelizeKeys(row));
-
-            return {
-                rows: deviceControllers,
-                count: parseInt(countResult.rows[0].count)
-            };
-        } finally {
-            client.release();
-        }
+    // (2) 종류 검색 (Exact Match)
+    if (filters.type) {
+        conditions.push(`type = $${values.length + 1}`);
+        values.push(filters.type);
+    }
+    
+    // (3) 이름 검색 (Partial Match)
+    if (filters.name) {
+        conditions.push(`name ILIKE $${values.length + 1}`);
+        values.push(`%${filters.name}%`);
     }
 
-    /**
-     * 단일 조회 (Find Detail)
-     * - Devices 목록을 포함하여 반환
-     */
-    async findById(id) {
-        const query = `
-            SELECT dc.*, 
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               'id', d.id,
-                               'name', d.name,
-                               'type', d.type,
-                               'status', d.status
-                           ) ORDER BY d.name ASC
-                       ) FILTER (WHERE d.id IS NOT NULL), 
-                       '[]'
-                   ) as pf_devices
-            FROM pf_device_controllers dc
-            LEFT JOIN pf_devices d ON dc.id = d.device_controller_id
-            WHERE dc.id = $1
-            GROUP BY dc.id
-        `;
-        
-        const { rows } = await pool.query(query, [id]);
-        
-        if (!rows[0]) {
-            const notFoundError = new Error('해당하는 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
+    // (4) 코드 검색 (Exact Match) - 예시로 추가
+    if (filters.code) {
+        conditions.push(`code ILIKE $${values.length + 1}`);
+        values.push(`%${filters.code}%`);
+    }
 
+    // (5) IP 주소 검색 (Partial Match)
+    if (filters.ipAddress) {
+        conditions.push(`ip_address ILIKE $${values.length + 1}`);
+        values.push(`%${filters.ipAddress}%`);
+    }  
+
+    // (5) PORT 검색 (Partial Match)
+    if (filters.port) {
+        conditions.push(`port ILIKE $${values.length + 1}`);
+        values.push(`%${filters.port}%`);
+    } 
+
+    // (6) 상태 검색 (Exact Match)
+    if (filters.status) {
+        conditions.push(`status = $${values.length + 1}`);
+        values.push(filters.status);
+    }    
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // 2. 카운트 쿼리
+    const countQuery = `SELECT COUNT(*) FROM pf_device_controllers ${whereClause}`;
+    const countResult = await pool.query(countQuery, values);
+    const count = parseInt(countResult.rows[0].count, 10);
+
+    // 3. 조회 쿼리
+    // LIMIT과 OFFSET은 values 배열의 뒤에 이어 붙입니다.
+    const query = `
+        SELECT id, site_id, name, description, code, type, ip_address, port, status, config, created_at, updated_at FROM pf_device_controllers
+        ${whereClause}
+        ORDER BY ${dbSortBy} ${sortOptions.sortOrder}
+        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+    `;
+    
+    const listValues = [...values, limit, offset];
+    const { rows } = await pool.query(query, listValues);
+
+    return { 
+        rows: humps.camelizeKeys(rows), 
+        count 
+    };
+};
+
+/**
+ * 단일 조회 (Find Detail)
+ */
+exports.findById = async (id) => {
+    const query = `
+        SELECT dc.*, 
+               COALESCE(
+                   json_agg(
+                       json_build_object(
+                           'id', d.id,
+                           'name', d.name
+                       ) ORDER BY d.name ASC
+                   ) FILTER (WHERE d.id IS NOT NULL), 
+                   '[]'
+               ) AS devices
+        FROM pf_device_controllers dc
+        LEFT JOIN pf_devices d ON dc.id = d.device_controller_id
+        WHERE dc.id = $1
+        GROUP BY dc.id
+    `;
+
+    const { rows } = await pool.query(query, [id]);
+    
+    if (rows.length === 0) return null;
+
+    return humps.camelizeKeys(rows[0]);
+};
+
+/**
+ * 생성 (Create)
+ */
+exports.create = async (data, client = null) => {
+    const dbData = humps.decamelizeKeys(data);
+    const { site_id, name, description, code, type, ip_address, port, config } = dbData;
+
+    const query = `
+        INSERT INTO pf_device_controllers (
+            site_id, name, description, code, type, 
+            ip_address, port, status, config
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+    `;
+    
+    const values = [
+        site_id,
+        name,
+        description || null,
+        code || null,
+        type || 'SERVER',
+        ip_address,
+        port,
+        'OFFLINE',
+        config || {}
+    ];
+
+    const db = client || pool;
+    try {
+        const { rows } = await db.query(query, values);
         return humps.camelizeKeys(rows[0]);
+
+    } catch (error) {
+        // Unique Violation (이름 중복)
+        if (error.code === '23505') {
+            const conflictError = new Error('이미 존재하는 사이트 이름입니다.');
+            conflictError.status = 409;
+            throw conflictError;
+        }
+        throw error;
     }
+};
 
-    /**
-     * 수정 (Update)
-     */
-    async update(id, data) {
-        if (Array.isArray(data)) {
-            console.warn('[DeviceControllerRepository.update] Data received is an Array. Please send an Object.');
-            if (data.length > 0 && typeof data[0] === 'object') {
-                data = data[0];
-            } else {
-                return null;
-            }
+/**
+ * 수정 (Update)
+ */
+exports.update = async (id, data, client = null) => {
+    if (!data || Object.keys(data).length === 0) return null;
+
+    const dbData = humps.decamelizeKeys(data);
+
+    const updates = [];
+    const values = [id];
+    let paramIndex = 2;
+
+    // 수정 가능한 컬럼 목록 (Allowlist)
+    const ALLOWED_COLUMNS = ['siteId', 'type', 'name', 'description', 'code', 'ipAddress', 'port', 'status', 'config'];
+
+    Object.keys(dbData).forEach(key => {
+        if (ALLOWED_COLUMNS.includes(key)) {
+            updates.push(`${key} = $${paramIndex}`);
+            values.push(dbData[key]);
+            paramIndex++;
         }
+    });
 
-        const keys = Object.keys(data);
-        if (keys.length === 0) return null;
+    if (updates.length === 0) return null;
+    
+    updates.push(`updated_at = NOW()`);
 
-        const setClauses = [];
-        const values = [id];
-        let valIndex = 2;
+    const query = `
+        UPDATE pf_device_controllers 
+        SET ${updates.join(', ')} 
+        WHERE id = $1 
+        RETURNING *
+    `;
 
-        keys.forEach(key => {
-            const dbCol = humps.decamelize(key);
-
-            // 수정 불가능한 컬럼 제외 (id, created_at 등은 정책에 따라 결정)
-            if (['id', 'created_at', 'updated_at'].includes(dbCol)) return;
-
-            setClauses.push(`${dbCol} = $${valIndex}`);
-            values.push(data[key]);
-            valIndex++;
-        });
-
-        if (setClauses.length === 0) {
-            console.warn('[DeviceControllerRepository.update] No valid fields to update. Returning null.');
-            return null;
-        }
-
-        const query = `
-            UPDATE pf_device_controllers 
-            SET ${setClauses.join(', ')}, updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-        `;
+    const db = client || pool;
+    try {
+        const { rows } = await db.query(query, values);
         
-        try {
-            const { rows } = await pool.query(query, values);
+        // 대상이 없으면 null 반환
+        if (rows.length === 0) return null;
+        
+        return humps.camelizeKeys(rows[0]);
 
-            if (rows.length === 0) {
-                const notFoundError = new Error('수정할 데이터를 찾을 수 없습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-
-            return humps.camelizeKeys(rows[0]);
-        } catch (error) {
-            if (error.code === '23505') {
-                const conflictError = new Error('이미 존재하는 데이터입니다.');
-                conflictError.status = 409;
-                throw conflictError;
-            }
-            if (error.code === '23503') {
-                const notFoundError = new Error('참조하는 데이터가 존재하지 않습니다.');
-                notFoundError.status = 404;
-                throw notFoundError;
-            }
-            throw error;
+    } catch (error) {
+        // Unique Violation (이름 중복 등)
+        if (error.code === '23505') {
+            const conflictError = new Error('이미 존재하는 사이트 이름입니다.');
+            conflictError.status = 409;
+            throw conflictError;
         }
+        throw error;
     }
+};
 
-    /**
-     * 삭제 (Delete)
-     */
-    async delete(id) {
-        const query = `DELETE FROM pf_device_controllers WHERE id = $1 RETURNING id`;
-        
-        const { rows } = await pool.query(query, [id]);
-        
-        if (rows.length === 0) {
-            const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (id, client = null) => {
+    const query = `DELETE FROM pf_device_controllers WHERE id = $1 RETURNING id`;
+    
+    const db = client || pool;
+    const { rows } = await db.query(query, [id]);
 
-        return { 
-            deletedId: rows[0]?.id 
-        };
-    }
+    if (rows.length === 0) return null;
+    
+    return humps.camelizeKeys(rows[0]);
+};
 
-    /**
-     * Device Controller 삭제 (Hard/Soft)
-     */
-    async deleteMultiple(deviceControllerIdList) {
-        
-        const query = 'DELETE FROM pf_device_controllers WHERE id = ANY($1::uuid[]) RETURNING id';
-        
-        const { rows } = await pool.query(query, [deviceControllerIdList]);
-        
-        if (rows.length === 0) {
-            const notFoundError = new Error('삭제할 데이터를 찾을 수 없습니다.');
-            notFoundError.status = 404;
-            throw notFoundError;
-        }
+/**
+ * 다중 삭제 (Delete Multiple)
+ */
+exports.multipleDelete = async (ids, client = null) => {
+    if (!ids || ids.length === 0) return [];
 
-        return rows;
-    }
-}
-
-module.exports = DeviceControllerRepository;
-
-
-
-
-
-
-
-
-
-// !! 수정 중
+    const query = 'DELETE FROM pf_device_controllers WHERE id = ANY($1::uuid[]) RETURNING id';
+    
+    const db = client || pool;
+    const { rows } = await db.query(query, [ids]);
+    
+    if (rows.length === 0) return [];
+    
+    return humps.camelizeKeys(rows);
+};
 
 /**
  * 사이트에 일괄 할당 (Assign To Site)
- * - 여러 제어기의 site_id를 한 번에 업데이트
  */
-exports.assignToSite = async (siteId, controllerIds, client = null) => {
-    if (!controllerIds || controllerIds.length === 0) return;
+exports.assignToSite = async (siteId, deviceControllerIds, client = null) => {
+    if (!deviceControllerIds || deviceControllerIds.length === 0) return;
 
     const query = `
         UPDATE pf_device_controllers
@@ -334,52 +254,50 @@ exports.assignToSite = async (siteId, controllerIds, client = null) => {
     `;
 
     const db = client || pool;
-    await db.query(query, [siteId, controllerIds]);
+    await db.query(query, [siteId, deviceControllerIds]);
 };
 
 /**
- * 사이트 연결 관계 수정 (Update Relation)
- * - 특정 제어기를 사이트에 연결(ADD)하거나 해제(REMOVE)
+ * 사이트 연결 관계 토글 (Toggle Relation)
+ * - 해당 사이트에 이미 연결되어 있으면 -> 해제 (NULL)
+ * - 연결되어 있지 않거나 다른 사이트면 -> 연결 (siteId)
+ * - 반환값: 변경된 후의 site_id
  */
-exports.updateSiteRelation = async (siteId, controllerId, action, client = null) => {
-    let query = '';
-    
-    if (action === 'ADD') {
-        query = `
-            UPDATE pf_device_controllers
-            SET site_id = $1, updated_at = NOW()
-            WHERE id = $2
-        `;
-    } else if (action === 'REMOVE') {
-        // 안전장치: 현재 해당 사이트에 연결된 녀석만 해제 가능
-        query = `
-            UPDATE pf_device_controllers
-            SET site_id = NULL, updated_at = NOW()
-            WHERE id = $2 AND site_id = $1
-        `;
-    } else {
-        return;
-    }
+exports.toggleSiteRelation = async (siteId, deviceControllerId, client = null) => {
+    const query = `
+        UPDATE pf_device_controllers
+        SET 
+            site_id = CASE 
+                WHEN site_id = $1 THEN NULL  -- 이미 내 사이트면 해제
+                ELSE $1                      -- 아니면 내 사이트로 등록
+            END,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING site_id
+    `;
 
     const db = client || pool;
-    await db.query(query, [siteId, controllerId]);
+    const { rows } = await db.query(query, [siteId, deviceControllerId]);
+    
+    // 업데이트된 행의 정보를 반환 (없으면 null)
+    return rows[0]; 
 };
 
 /**
  * 페이징 없는 전체 조회 (스케줄러 / 내부 로직용)
  */
-exports.findAllWithoutPagination = async (filters, sortOptions) => {
+exports.findAllWithoutPagination = async (filters = {}, sortOptions = {}) => {
     const dbSortBy = humps.decamelize(sortOptions.sortBy || 'id');
-    const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+    const sortOrder = (sortOptions.sortOrder?.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
 
     const conditions = [];
     const values = [];
 
-    // 필터 처리 (기존 findAll과 동일하게 필요한 만큼 구현)
     if (filters.siteId) {
         conditions.push(`site_id = $${values.length + 1}`);
         values.push(filters.siteId);
     }
+    // 필요한 다른 필터 추가 가능
     
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -389,7 +307,6 @@ exports.findAllWithoutPagination = async (filters, sortOptions) => {
         ORDER BY ${dbSortBy} ${sortOrder}
     `;
     
-    // 페이징(LIMIT/OFFSET) 없이 실행
     const { rows } = await pool.query(query, values);
 
     return { 
@@ -404,7 +321,6 @@ exports.findAllWithoutPagination = async (filters, sortOptions) => {
 exports.findByIds = async (ids) => {
     if (!ids || ids.length === 0) return [];
     
-    // ANY($1)을 사용하여 배열 내 ID 검색
     const query = `SELECT * FROM pf_device_controllers WHERE id = ANY($1::uuid[])`;
     const { rows } = await pool.query(query, [ids]);
     

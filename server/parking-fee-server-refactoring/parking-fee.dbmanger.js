@@ -71,7 +71,7 @@ async function initParkingFeeDbSchema() {
                 description TEXT,           -- 주차장 설명
                 code TEXT,                  -- 주차장 코드
 
-                status TEXT CHECK (status IN ('NORMAL', 'ERROR', 'LOCK')), -- 주차장 상태
+                status TEXT CHECK (status IN ('NORMAL', 'ERROR', 'LOCK', 'UNLOCK')), -- 주차장 상태
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
@@ -137,7 +137,7 @@ async function initParkingFeeDbSchema() {
 
                 type TEXT NOT NULL CHECK (type IN ('SERVER', 'EMBEDDED', 'MIDDLEWARE')),    -- 장비 제어기 유형
 
-                name TEXT NOT NULL,         -- 장비 제어기 이름
+                name TEXT NOT NULL UNIQUE,  -- 장비 제어기 이름
                 description TEXT,           -- 장비 제어기 설명
                 code TEXT,                  -- 장비 제어기 코드
 
@@ -150,8 +150,6 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_name_null_site ON pf_device_controllers (name) WHERE site_id IS NULL;
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_name_site ON pf_device_controllers (site_id, name) WHERE site_id IS NOT NULL;
             CREATE UNIQUE INDEX IF NOT EXISTS idx_pf_device_controllers_network_site ON pf_device_controllers (site_id, ip_address, port) WHERE site_id IS NOT NULL;
             CREATE INDEX IF NOT EXISTS device_controllers_site_id_idx ON pf_device_controllers (site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_device_controllers;
@@ -188,14 +186,14 @@ async function initParkingFeeDbSchema() {
                 direction TEXT,         -- 장비 방향  
                 location TEXT,          -- 설치 위치
 
-                status TEXT DEFAULT 'UNKNOWN',  -- 장비 연결 상태 (ONLINE/OFFLINE)    
+                status TEXT CHECK (status IN ('ONLINE', 'OFFLINE', 'UNKNOWN')) DEFAULT 'UNKNOWN',  -- 장비 연결 상태 (ONLINE/OFFLINE/UNKNOWN)    
                 last_heartbeat TIMESTAMPTZ,     -- 마지막 상태 확인 시간
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
                 CONSTRAINT uq_pf_devices_site_name UNIQUE (site_id, name),
-                CONSTRAINT uq_pf_devices_site_network UNIQUE (site_id, ip_address, port, name),
+                CONSTRAINT uq_pf_devices_site_network UNIQUE (site_id, ip_address, port),
                 CONSTRAINT uq_pf_devices_controller_name UNIQUE (device_controller_id, name)
             );
             CREATE INDEX IF NOT EXISTS devices_site_id_idx ON pf_devices (site_id);
@@ -215,48 +213,88 @@ async function initParkingFeeDbSchema() {
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
                 site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
 
-                type TEXT NOT NULL CHECK (type IN ('FEE', 'DISCOUNT', 'MEMBERSHIP', 'BLACKLIST', 'HOLIDAY')),   -- 정책 유형
+                -- 정책 유형 (행동 정의)
+                type TEXT NOT NULL CHECK (type IN ('FEE', 'DISCOUNT', 'MEMBERSHIP', 'BLACKLIST')), 
+                
+                name TEXT NOT NULL,           -- 정책 이름 (예: 평일 기본 요금, 주말 요금)
+                description TEXT,             -- 정책 설명
+                code TEXT,                    -- 관리용 코드
 
-                name TEXT NOT NULL, -- 정책 이름
-                description TEXT,   -- 정책 설명
-                code TEXT,          -- 정책 코드
+                priority INTEGER DEFAULT 0,   -- 우선순위 (높을수록 먼저 적용)
+                is_active BOOLEAN DEFAULT true, -- 활성화 여부
 
-                -- 정책 설정 (JSONB)
-                -- 
-                -- 요금 정책
-                -- base_time_minutes: integer     - 기본 시간(분)
-                -- base_fee: inetger             - 기본 요금(원)
-                -- unit_time_minutes: integer     - 추가 단위 시간(분)
-                -- unit_fee: integer             - 추가 단위 요금(원)
-                -- grace_time_minutes: integer    - 회차 유예 시간(분)
-                -- daily_max_fee: integer         - 일일 최대 요금(원)
-                -- 
-                -- 할인 정책
-                -- discount_type: string     - 할인 종류(PERCENT, FIXED_AMOUNT, FREE_TIME)
-                -- discount_value: integer   - 할인 값(%, 원, 분)
-                -- discount_method: string   - 할인 방식(AUTO, MANUAL)
-                --           
-                -- 휴일 정책
-                -- holiday_id: uuid            - 휴일 ID
-                -- holiday_fee_policy_id: uuid - 휴일 요금 정책 ID
+                -- ==================================================================================
+                -- [정책 설정 JSONB 구조 정의]
+                -- 모든 정책은 크게 'condition'(조건)과 'rule'(규칙)로 구성됩니다.
+                -- ==================================================================================
                 --
-                -- 블랙 리스트 정책
-                -- blacklist_action: string - 실행 설정(BLOCK, WARN)
+                -- 1. 공통 조건 객체 ("condition")
+                --    어떤 상황에서 이 정책이 발동되는지 정의합니다.
+                --    -------------------------------------------------------------------------------
+                --    days: text[]           -- 적용 요일 배열 ['MON', 'TUE', ... 'SUN']
+                --    time_range: object     -- 적용 시간대 { "start": "HH:MM", "end": "HH:MM" }
+                --    is_holiday: boolean    -- 휴일 여부 (pf_holidays 테이블 기준 true/false)
+                --    target_dates: text[]   -- 특정 날짜 지정 ['2025-12-25', '2025-01-01']
+                --    match_type: string     -- 조건 결합 방식 ('AND', 'OR' - 기본값은 로직에 따름)
                 --
-                -- 회원 정책
-                -- membership_fee: integer              - 회원 요금(원)
-                -- membership_validity_days: integer    - 회원 적용 기간(일)
-                config JSONB NOT NULL,
+                --
+                -- 2. 요금 정책 ("type": "FEE")
+                --    "fee_rule" 객체에 요금 계산 방식을 정의합니다.
+                --    -------------------------------------------------------------------------------
+                --    base_time_minutes: integer   -- 기본 시간(분) (예: 30)
+                --    base_fee: integer            -- 기본 요금(원) (예: 1000)
+                --    unit_time_minutes: integer   -- 추가 단위 시간(분) (예: 10)
+                --    unit_fee: integer            -- 추가 단위 요금(원) (예: 500)
+                --    grace_time_minutes: integer  -- 회차 유예 시간(분) (입차 후 이 시간 내 출차 시 무료)
+                --    daily_max_fee: integer       -- 일일 최대 요금(원) (null이면 무제한)
+                --
+                --    [예시] 주말 요금:
+                --    {
+                --      "condition": { "days": ["SAT", "SUN"] },
+                --      "fee_rule": { "base_time_minutes": 60, "base_fee": 2000, ... }
+                --    }
+                --
+                --
+                -- 3. 할인 정책 ("type": "DISCOUNT")
+                --    "discount_rule" 객체에 할인 방식을 정의합니다.
+                --    -------------------------------------------------------------------------------
+                --    discount_type: string    -- 할인 종류 ('PERCENT', 'FIXED_AMOUNT', 'FREE_TIME')
+                --    value: integer           -- 할인 값 (50, 1000, 60 등)
+                --    max_amount: integer      -- 최대 할인 금액 한도 (PERCENT 사용 시 필요, null 가능)
+                --    apply_method: string     -- 적용 방식 ('AUTO': 자동적용, 'MANUAL': 관리자/키오스크)
+                --    target_group: string     -- 대상 그룹 코드 ('NATIONAL_MERIT', 'EV_CAR' 등)
+                --
+                --
+                -- 4. 회원/정기권 정책 ("type": "MEMBERSHIP")
+                --    "membership_rule" 객체에 정기권 설정을 정의합니다.
+                --    -------------------------------------------------------------------------------
+                --    period_days: integer     -- 적용 기간(일) (30, 180, 365)
+                --    price: integer           -- 판매 금액
+                --    allow_extension: boolean -- 연장 가능 여부
+                --
+                --
+                -- 5. 블랙리스트 정책 ("type": "BLACKLIST")
+                --    "blacklist_rule" 객체에 제재 방식을 정의합니다.
+                --    -------------------------------------------------------------------------------
+                --    action_type: string      -- 실행 설정 ('BLOCK_ENTRY': 입차거부, 'WARN_ADMIN': 관리자알림)
+                --    message: string          -- 차단 시 표출할 메시지
+                -- ==================================================================================
+                config JSONB NOT NULL DEFAULT '{}'::jsonb,
 
-                is_system BOOLEAN DEFAULT false,    -- 시스템 정책 여부
+                is_system BOOLEAN DEFAULT false,    -- 시스템 기본 정책 여부
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
                 CONSTRAINT uq_pf_policies_site_name UNIQUE (site_id, name)
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_pf_policies_site_fee ON pf_policies (site_id) WHERE type = 'FEE';
-            CREATE INDEX IF NOT EXISTS policies_site_id_idx ON pf_policies (site_id);
+
+            -- 인덱스: 사이트별 활성 정책을 우선순위 높은 순서대로 빠르게 조회
+            CREATE INDEX IF NOT EXISTS idx_pf_policies_calc 
+            ON pf_policies (site_id, type, priority DESC) 
+            WHERE is_active = true;
+
+            -- 트리거 설정
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_policies;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_policies FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -276,17 +314,17 @@ async function initParkingFeeDbSchema() {
                 code TEXT,          -- 회원 코드
 
                 phone_encrypted TEXT,   -- 연락처
-                phone_last_digits TEXT, -- 연락처 마스킹
+                phone_last_digits TEXT, -- 연락처 뒷자리
                 phone_hash TEXT,        -- 연락처 해쉬
 
                 group_name TEXT,    -- 그룹
                 note TEXT,          -- 메모
 
-                is_active BOOLEAN DEFAULT true,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
-                CONSTRAINT uq_pf_members_site_car_number UNIQUE (site_id, car_number)
+                CONSTRAINT uq_pf_members_site_car_number UNIQUE (site_id, car_number),
+                CONSTRAINT uq_pf_members_site_phone_hash UNIQUE (site_id, phone_hash)
             );
             CREATE INDEX IF NOT EXISTS members_site_id_idx ON pf_members (site_id);
             CREATE INDEX IF NOT EXISTS members_car_number_idx ON pf_members (car_number);
@@ -313,24 +351,41 @@ async function initParkingFeeDbSchema() {
                 policy_name TEXT NOT NULL,
                 policy_code TEXT,
 
-                amount INTEGER NOT NULL,                            -- 실제 결재 금액
+                amount INTEGER NOT NULL,                            -- 실제 결제 금액
                 payment_method TEXT NOT NULL DEFAULT 'CASH',        -- 결제 수단(CARD, CASH, TRANSFER)
-                payment_status TEXT NOT NULL DEFAULT 'SUCCESS',     -- 결제 상태(SUCCESS, CANCELED, FAILED)
+                status TEXT NOT NULL DEFAULT 'SUCCESS',             -- 결제 상태(SUCCESS, CANCELED, FAILED)
                 note TEXT,                                          -- 메모    
 
                 start_date DATE NOT NULL,   -- 등록 시작일
                 end_date DATE NOT NULL,     -- 등록 종료일
 
-                paid_at TIMESTAMPTZ,    -- 결제 시각
+                paid_at TIMESTAMPTZ,        -- 결제 시각
+                canceled_at TIMESTAMPTZ,    -- 결제 취소 시각
 
                 created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ
+                updated_at TIMESTAMPTZ,
+
+                CONSTRAINT check_dates CHECK (start_date <= end_date)
             );
             CREATE INDEX IF NOT EXISTS member_payment_histories_member_id_idx ON pf_member_payment_histories (member_id);
-            CREATE INDEX IF NOT EXISTS member_payment_histories_paid_at_idx ON pf_member_payment_histories (paid_at);
+            CREATE INDEX IF NOT EXISTS idx_pf_payment_car_number ON pf_member_payment_histories(car_number);
             CREATE INDEX IF NOT EXISTS member_payment_histories_dates_idx ON pf_member_payment_histories (start_date, end_date);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_member_payment_histories;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_member_payment_histories FOR EACH ROW EXECUTE FUNCTION update_timestamp();
+            
+            -- 기간 중복 방지 제약조건 추가 (btree_gist 확장 필요: CREATE EXTENSION btree_gist;)
+            -- 1. btree_gist 확장은 필요합니다.
+            CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+            -- 2. 제약 조건 추가
+            ALTER TABLE pf_member_payment_histories
+            ADD CONSTRAINT no_overlapping_periods
+            EXCLUDE USING GIST (
+                member_id WITH =,
+                -- daterange는 DATE 타입을 다루며 타임존의 영향을 받지 않는 IMMUTABLE 함수입니다.
+                -- '[]'는 시작일과 종료일을 모두 포함(inclusive)한다는 뜻입니다.
+                daterange(start_date, end_date, '[]') WITH &&
+            ) WHERE (status = 'SUCCESS');
         `);
 
         // =================================================================
@@ -373,9 +428,9 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
-                CONSTRAINT uq_pf_holidays_site_date UNIQUE (site_id, date)
+                CONSTRAINT uq_pf_holidays_site_date UNIQUE NULLS NOT DISTINCT (site_id, date)
             );
-            CREATE INDEX IF NOT EXISTS holidays_site_id_idx ON pf_holidays (site_id);
+            CREATE INDEX IF NOT EXISTS holidays_site_id_idx ON pf_holidays (date, site_id);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_holidays;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_holidays FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -441,7 +496,7 @@ async function initParkingFeeDbSchema() {
                 -- PAYMENT_PENDING(정산대기)
                 -- COMPLETED(출차완료)
                 -- UNRECOGNIZED(번호미인식)
-                -- CANCELLED(취소/오인식무효화)
+                -- CANCELED(취소/오인식무효화)
                 -- RUNAWAY(도주)
                 -- FORCE_COMPLETED(강제 출차완료: 관리자 수동 출차완료 처리 또는 출차 기록이 없고 입차 기록만 있는 차량이 재입차 했을 경우 처리를 위해) 
                 -- PENDING_ENTRY(입차 진행중)

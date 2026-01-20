@@ -1,117 +1,181 @@
 const { body, query, param } = require('express-validator');
 
-/**
- * 회원 생성 유효성 검사
- */
-exports.createMember = [
-    body('siteId').notEmpty().isUUID().withMessage('유효한 siteId(UUID)여야 합니다.'),
-
-    body('carNumber').notEmpty().withMessage('carNumber는 필수입니다.').isString().withMessage('carNumber은 문자열이어야 합니다.'),
-
-    body('name').notEmpty().withMessage('name은 필수입니다.').isString().withMessage('name은 문자열이어야 합니다.'),
-    body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
-
-    body('phone').optional().isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
-    body('groupName').optional().isString().withMessage('name은 문자열이어야 합니다.'),
-
-    body('note').optional().isString().withMessage('note는 문자열이어야 합니다.')
-];
+const validateId = param('id')
+    .notEmpty().withMessage('id는 필수입니다.')
+    .isUUID().withMessage('유효하지 않은 UUID 형식입니다.');
 
 /**
- * 회원 수정 유효성 검사
- */
-exports.updateMember = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    
-    body('siteId').optional().isUUID().withMessage('유효한 siteId(UUID)여야 합니다.'),
-
-    body('carNumber').optional().isString().withMessage('carNumber은 문자열이어야 합니다.'),
-
-    body('name').optional().isString().withMessage('name은 문자열이어야 합니다.'),
-    body('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    body('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
-
-    body('phone').optional().isString().withMessage('phone은 문자열이어야 합니다.'),
-    body('groupName').optional().isString().withMessage('name은 문자열이어야 합니다.'),
-
-    body('note').optional().isString().withMessage('note는 문자열이어야 합니다.')
-];
-
-/**
- * 회원 상세 조회 유효성 검사
- */
-exports.getMember = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-];
-
-/**
- * 회원 삭제 유효성 검사
- */
-exports.deleteMember = [
-    param('id').notEmpty().withMessage('id는 필수입니다.').isUUID().withMessage('유효한 UUID가 아닙니다.'),
-];
-
-/**
- * 회원 목록 조회 유효성 검사
+ * 회원(Member) 목록 조회 유효성 검사
  */
 exports.getMembers = [
     // 페이징
-    query('page').optional().isInt({ min: 1 }).withMessage('page는 숫자이어야 합니다.'),
-    query('limit').optional().isInt({ min: 1 }).withMessage('limit은 숫자이어야 합니다.'),
+    query('page')
+        .optional()
+        .isInt({ min: 1 }).withMessage('page는 1이상의 숫자여야 합니다.')
+        .toInt(),
+
+    query('limit')
+        .optional()
+        .isInt({ min: 1 }).withMessage('limit은 1이상의 숫자여야 합니다.')
+        .toInt(),
     
     // 정렬
-    query('sortBy').optional().isString().withMessage('sortBy는 문자열이어야 합니다.'),
-    query('sortOrder').optional().toUpperCase().isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'이어야 합니다."),
+    query('sortBy')
+        .optional()
+        .isString().withMessage('sortBy는 문자열이어야 합니다.')
+        .trim()
+        .isIn(['name', 'carNumber', 'siteId', 'createdAt', 'updatedAt'])
+        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, carNumber, siteId, createdAt, updatedAt)'),
+
+    query('sortOrder')
+        .optional()
+        .toUpperCase()
+        .isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'여야 합니다."),
     
-    // 검색 조건 (모든 컬럼)
-    query('siteId').optional().isUUID().withMessage('유효한 UUID가 아닙니다.'),
-    query('carNumber').optional().isString().withMessage('carNumber는 문자열이어야 합니다.'),
+    // 기본 검색
+    query('siteId')
+        .optional()
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
 
-    query('name').optional().isString().withMessage('name은 문자열이어야합니다.'),
-    query('description').optional().isString().withMessage('description은 문자열이어야합니다.'),
-    query('code').optional().isString().withMessage('code는 문자열이어야합니다.'),   
+    query('carNumber')
+        .optional()
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
+        .trim()
+        .customSanitizer(value => value.replace(/\s+/g, '')),
 
-    query('phone').optional().isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.'),
-    query('groupName').optional().isString().withMessage('groupName는 문자열이어야합니다.'),
+    query('name')
+        .optional()
+        .isString().withMessage('name은 문자열이어야합니다.')
+        .trim(),
 
-    query('status').optional().toUpperCase().isIn(['UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED']).withMessage("status는 'UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED' 이어야 합니다."),
-    query('note').optional().isString().withMessage('note는 문자열이어야합니다.'),
+    query('code')
+        .optional()
+        .isString().withMessage('code는 문자열이어야합니다.')
+        .trim(),
     
-    query('createdAtStart')
+    query('phone')
         .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(), // Date 객체로 변환
+        .isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
+    
+    query('phoneLastDigits')
+        .optional()
+        .trim()
+        .isString().withMessage('phoneLastDigits는 문자열이어야 합니다.')
+        .isNumeric().withMessage('phoneLastDigits는 숫자만 포함해야 합니다.')
+        .isLength({ min: 1, max: 4 }).withMessage('phoneLastDigits는 1자에서 4자 사이여야 합니다.'),
 
-    query('createdAtEnd')
+    query('groupName')
         .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate()
-        .custom((value, { req }) => {
-            // 시작일이 종료일보다 늦은지 체크
-            if (req.query.createdAtStart && value < new Date(req.query.createdAtStart)) {
-                throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
-            }
-            return true;
-        }),
-    query('updatedAtStart')
-        .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate(), // Date 객체로 변환
+        .isString().withMessage('groupName는 문자열이어야합니다.')
+        .trim(),
 
-    query('updatedAtEnd')
+    query('status')
         .optional()
-        .isISO8601()
-        .withMessage('날짜와 시간 형식이 올바르지 않습니다. (예: 2023-10-27T14:30:00)')
-        .toDate()
-        .custom((value, { req }) => {
-            // 시작일이 종료일보다 늦은지 체크
-            if (req.query.updatedAtStart && value < new Date(req.query.updatedAtStart)) {
-                throw new Error('종료일은 시작일보다 빠를 수 없습니다.');
-            }
-            return true;
-        }),
+        .toUpperCase().isIn(['UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED']).withMessage("status는 'UPCOMING', 'ACTIVE', 'EXPIRING', 'EXPIRED' 이어야 합니다.")
+];
+
+/**
+ * 회원(Member) 생성 유효성 검사
+ */
+exports.createMember = [
+    body('siteId')
+        .notEmpty().withMessage('siteId는 필수입니다.')
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
+
+    body('carNumber')
+        .notEmpty().withMessage('carNumber는 필수입니다.')
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
+        .trim()
+        .customSanitizer(value => value.replace(/\s+/g, '')),
+
+    body('name')
+        .notEmpty().withMessage('name은 필수입니다.')
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
+
+    body('description')
+        .optional()
+        .isString().withMessage('description은 문자열이어야 합니다.')
+        .trim(),
+
+    body('code')
+        .optional()
+        .isString().withMessage('code는 문자열이어야 합니다.')
+        .trim(),   
+
+    body('phone')
+        .optional()
+        .customSanitizer(value => String(value))
+        .isNumeric().withMessage('phone는 숫자만 포함해야 합니다.')
+        .isLength({ min: 10, max: 11 }).withMessage('phone 길이는 10~11자여야 합니다.'),
+    
+    body('groupName')
+        .optional()
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
+
+    body('note')
+        .optional()
+        .isString().withMessage('note는 문자열이어야 합니다.')
+        .trim()
+];
+
+/**
+ * 회원(Member) 수정 유효성 검사
+ */
+exports.updateMember = [
+    validateId,
+
+    body('siteId')
+        .optional()
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
+
+    body('carNumber')
+        .optional()
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
+        .trim()
+        .customSanitizer(value => value.replace(/\s+/g, '')),
+
+    body('name')
+        .optional()
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
+
+    body('description')
+        .optional()
+        .isString().withMessage('description은 문자열이어야 합니다.')
+        .trim(),
+
+    body('code')
+        .optional()
+        .isString().withMessage('code는 문자열이어야 합니다.')
+        .trim(),   
+
+    body('phone')
+        .optional()
+        .isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
+    
+    body('groupName')
+        .optional()
+        .isString().withMessage('name은 문자열이어야 합니다.')
+        .trim(),
+
+    body('note')
+        .optional()
+        .isString().withMessage('note는 문자열이어야 합니다.')
+        .trim()
+];
+
+/**
+ * 회원(Member) 상세 조회 유효성 검사
+ */
+exports.getMember = [
+    validateId
+];
+
+/**
+ * 회원(Member) 삭제 유효성 검사
+ */
+exports.deleteMember = [
+    validateId
 ];

@@ -24,8 +24,8 @@ exports.getLanes = [
         .optional()
         .isString().withMessage('sortBy는 문자열이어야 합니다.')
         .trim()
-        .isIn(['name', 'code', 'siteId', 'createdAt', 'updatedAt'])
-        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, siteId, createdAt, updatedAt)'),
+        .isIn(['name', 'code', 'siteId', 'zoneId', 'createdAt', 'updatedAt'])
+        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, siteId, zoneId, createdAt, updatedAt)'),
 
     query('sortOrder')
         .optional()
@@ -83,7 +83,7 @@ exports.createLane = [
         .trim(),
 
     body('type')
-        .notEmpty().withMessage('type은 필수입니다.')
+        .optional()
         .isIn(['IN', 'OUT', 'BOTH']).withMessage("type은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
 
     body('inIntegratedGateId')
@@ -102,7 +102,7 @@ exports.updateLane = [
     validateId,
 
     body('zoneId')
-        .notEmpty().withMessage('zoneId는 필수입니다.')
+        .optional()
         .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
 
     body('name')
@@ -125,11 +125,11 @@ exports.updateLane = [
         .isIn(['IN', 'OUT', 'BOTH']).withMessage("type은 'IN', 'OUT', 'BOTH' 중 하나이어야 합니다."),
 
     body('inIntegratedGateId')
-        .optional()
+        .optional({ nullable: true })
         .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
 
     body('outIntegratedGateId')
-        .optional()
+        .optional({ nullable: true })
         .isUUID().withMessage('유효하지 않은 UUID 형식입니다.')
 ];
 

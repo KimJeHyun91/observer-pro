@@ -1,5 +1,4 @@
 const zoneRepository = require('../repositories/zone.repository');
-const siteRepository = require('../repositories/site.repository');
 
 /**
  * 목록 조회 (Find All)
@@ -62,15 +61,7 @@ exports.findDetail = async (id) => {
  * 생성 (Create)
  */
 exports.create = async (data) => {
-    // 1. 부모 사이트(Site) 존재 여부 확인
-    const site = await siteRepository.findById(data.siteId);
-    if (!site) {
-        const err = new Error('존재하지 않는 사이트 ID입니다.');
-        err.status = 404;
-        throw err;
-    }
-
-    // 2. 구역 생성
+    // 1. 구역 생성
     return await zoneRepository.create(data);
 };
 

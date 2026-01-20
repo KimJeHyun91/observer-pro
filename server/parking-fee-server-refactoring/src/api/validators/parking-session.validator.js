@@ -34,7 +34,7 @@ exports.validateList = [
             // value는 위 로직에 의해 무조건 배열([])입니다.
             const allowedStatuses = [
                 'PENDING', 'PRE_SETTLED', 'PAYMENT_PENDING', 
-                'COMPLETED', 'CANCELLED', 'RUNAWAY', 
+                'COMPLETED', 'CANCELED', 'RUNAWAY', 
                 'PENDING_ENTRY', 'PENDING_EXIT', 
                 'FORCE_COMPLETED', 'UNRECOGNIZED'
             ];

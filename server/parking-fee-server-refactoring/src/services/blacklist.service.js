@@ -1,96 +1,100 @@
-const BlacklistRepository = require('../repositories/blacklist.repository');
+const blacklistRepository = require('../repositories/blacklist.repository');
 
 /**
- * Blacklist Service
- * - 블랙리스트 관련 비즈니스 로직 수행
+ * 목록 조회 (Find All)
+ * - 페이징, 정렬, 검색 필터 처리
  */
-class BlacklistService {
-    constructor() {
-        this.repository = new BlacklistRepository();
+exports.findAll = async (params) => {
+    // 1. 페이징 처리
+    const page = parseInt(params.page) || 1;
+    const limit = parseInt(params.limit) || 100;
+    const offset = (page - 1) * limit;
+
+    // 2. 검색 필터 
+    const filters = {};
+
+    if (params.siteId) filters.siteId = params.siteId;              // 사이트 ID 검색
+    if (params.carNumber)   filters.carNumber = params.carNumber;   // 차량번호 검색
+    if (params.reason)   filters.reason = params.reason;            // 사유 검색
+
+    // 3. 정렬 옵션 (Allowlist)
+    const ALLOWED_SORTS = ['createdAt', 'updatedAt', 'siteId', 'carNumber'];
+    let sortBy = params.sortBy || 'createdAt';
+    
+    // 허용되지 않은 정렬 키 방어
+    if (!ALLOWED_SORTS.includes(sortBy)) {
+        sortBy = 'createdAt';
     }
 
-    /**
-     * 생성 (Create)
-     * @param {Object} data - 생성할 데이터
-     */
-    async create(data) {
-        return await this.repository.create(data);
-    }
+    const sortOrder = (params.sortOrder && params.sortOrder.toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
+    const sortOptions = { sortBy, sortOrder };
 
-    /**
-     * 목록 조회 (Find All)
-     * - 페이징 파라미터 처리
-     * - 정렬 옵션 설정
-     * - 검색 필터 추출
-     * @param {Object} params - 쿼리 파라미터 (page, limit, sortBy, sortOrder, 검색어 등)
-     */
-    async findAll(params) {
-        const page = parseInt(params.page) || 1;
-        const limit = parseInt(params.limit) || 100;
-        const offset = (page - 1) * limit;
+    // 4. Repository 호출
+    const { rows, count } = await blacklistRepository.findAll(filters, sortOptions, limit, offset);
 
-        const filters = {};
-        const excludeKeys = ['page', 'limit', 'sortBy', 'sortOrder', 'deleteMethod'];
-        Object.keys(params).forEach(key => {
-            if (!excludeKeys.includes(key) && params[key] !== undefined) {
-                filters[key] = params[key];
-            }
-        });
-
-        const sortOptions = {
-            sortBy: params.sortBy || 'created_at',
-            sortOrder: params.sortOrder || 'DESC'
-        };
-
-        const { rows, count } = await this.repository.findAll(filters, sortOptions, limit, offset);
-
-        return {
-            blacklists: rows,
-            meta: {
-                totalItems: parseInt(count),
-                totalPages: Math.ceil(count / limit),
-                currentPage: page,
-                itemsPerPage: limit
-            }
-        };
-    }
-
-    /**
-     * 상세 조회 (Find Detail)
-     * @param {string} id - UUID
-     */
-    async findDetail(id) {
-        const data = await this.repository.findById(id);
-        if (!data) {
-            throw new Error('Blacklist not found');
+    return {
+        blacklists: rows,
+        meta: {
+            totalItems: parseInt(count),
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            itemsPerPage: limit
         }
-        return data;
+    };
+};
+
+/**
+ * 상세 조회 (Find Detail)
+ */
+exports.findDetail = async (id) => {
+    const blacklist = await blacklistRepository.findById(id);
+    
+    if (!blacklist) {
+        const err = new Error('해당 블랙리스트을 찾을 수 없습니다.');
+        err.status = 404;
+        throw err;
+    }
+    return blacklist;
+};
+
+/**
+ * 생성 (Create)
+ */
+exports.create = async (data) => {
+    // 1. 구역 생성
+    return await blacklistRepository.create(data);
+};
+
+/**
+ * 수정 (Update)
+ */
+exports.update = async (id, data) => {
+    // 1. 바로 업데이트 요청
+    const updatedBlacklist = await blacklistRepository.update(id, data);
+
+    // 2. 결과가 null이면 "대상이 없다"는 뜻 -> 404 에러
+    if (!updatedBlacklist) {
+        const err = new Error('해당 블랙리스트를 찾을 수 없습니다.');
+        err.status = 404;
+        throw err;
     }
 
-    /**
-     * 수정 (Update)
-     * @param {string} id - UUID
-     * @param {Object} data - 수정할 데이터
-     */
-    async update(id, data) {
-        return await this.repository.update(id, data);
+    return updatedBlacklist;
+};
+
+/**
+ * 삭제 (Delete)
+ */
+exports.delete = async (id) => {
+    // 1. 바로 삭제 요청
+    const deletedBlacklist = await blacklistRepository.delete(id);
+
+    // 2. 결과가 null이면 "대상이 없다"는 뜻 -> 404 에러
+    if (!deletedBlacklist) {
+        const err = new Error('해당 블랙리스트를 찾을 수 없습니다.');
+        err.status = 404;
+        throw err;
     }
 
-    /**
-     * 삭제 (Delete)
-     * @param {string} id - UUID
-     */
-    async delete(id) {
-        return await this.repository.delete(id);
-    }
-
-    /**
-     * 블랙리스트 여부 확인 (입차 시 사용)
-     * - siteId가 없으면 전체 블랙리스트, 있으면 해당 사이트 포함 블랙리스트 검색
-     */
-    async checkBlacklist(siteId, carNumber) {
-        return await this.repository.checkBlacklist(siteId, carNumber);
-    }
-}
-
-module.exports = BlacklistService;
+    return deletedBlacklist;
+};

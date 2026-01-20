@@ -10,7 +10,6 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         updatedAt: 'updated_at',
         name: 'name',
         code: 'code',
-        status: 'status'
     };
     const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
     
@@ -20,14 +19,14 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
     
     // (1) 이름 검색 (Partial Match)
     if (filters.name) {
-        conditions.push(`name LIKE $${values.length + 1}`);
+        conditions.push(`name ILIKE $${values.length + 1}`);
         values.push(`%${filters.name}%`);
     }
 
     // (2) 코드 검색 (Exact Match) - 예시로 추가
     if (filters.code) {
-        conditions.push(`code = $${values.length + 1}`);
-        values.push(filters.code);
+        conditions.push(`code ILIKE $${values.length + 1}`);
+        values.push(`%${filters.code}%`);
     }
 
     // (3) 상태 검색 (Exact Match)
@@ -46,7 +45,24 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
     // 3. 조회 쿼리
     // LIMIT과 OFFSET은 values 배열의 뒤에 이어 붙입니다.
     const query = `
-        SELECT id, name, description, code, status, created_at, updated_at FROM pf_sites
+        SELECT 
+            id, 
+            name, 
+            description, 
+            code, 
+            status, 
+            created_at, 
+            updated_at, 
+            COALESCE(
+                (SELECT jsonb_agg(dc)
+                 FROM (
+                    SELECT id, name FROM pf_device_controllers 
+                    WHERE site_id = s.id
+                    ORDER BY name ASC
+                 ) dc
+                ), '[]'::jsonb
+            ) AS device_controllers
+        FROM pf_sites s
         ${whereClause}
         ORDER BY ${dbSortBy} ${sortOptions.sortOrder}
         LIMIT $${values.length + 1} OFFSET $${values.length + 2}

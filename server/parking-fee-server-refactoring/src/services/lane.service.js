@@ -60,6 +60,8 @@ exports.findDetail = async (id) => {
  * - 3. 트랜잭션 적용
  */
 exports.create = async (data) => {
+    await validateLaneDevices(data.inIntegratedGateId, data.outIntegratedGateId, null);
+
     const client = await pool.connect();
 
     try {
@@ -70,8 +72,8 @@ exports.create = async (data) => {
 
         // 2. 연관 장비(통합 차단기 등) ID 수집
         const deviceIds = [];
-        if (data.inIntegratedGate?.id) deviceIds.push(data.inIntegratedGate.id);
-        if (data.outIntegratedGate?.id) deviceIds.push(data.outIntegratedGate.id);
+        if (data.inIntegratedGateId) deviceIds.push(data.inIntegratedGateId);
+        if (data.outIntegratedGateId) deviceIds.push(data.outIntegratedGateId);
 
         // 3. 장비들에 lane_id 할당 (DeviceRepository에 위임)
         if (deviceIds.length > 0) {
@@ -95,6 +97,13 @@ exports.create = async (data) => {
  * - One-Shot Update 패턴 적용
  */
 exports.update = async (id, data) => {
+    const hasDeviceInfo = (data.inIntegratedGateId !== undefined || data.outIntegratedGateId !== undefined);
+    
+    if (hasDeviceInfo) {
+        // 현재 수정하려는 차선 ID(id)를 넘겨서, "자기 자신이 사용 중인 것"은 에러로 처리하지 않도록 함
+        await validateLaneDevices(data.inIntegratedGateId, data.outIntegratedGateId, id);
+    }
+    
     const client = await pool.connect();
 
     try {
@@ -115,12 +124,12 @@ exports.update = async (id, data) => {
         }
 
         // 2. 장비 연결 수정 (요청 데이터에 관련 필드가 있을 때만 실행)
-        const hasDeviceInfo = (data.inIntegratedGate !== undefined || data.outIntegratedGate !== undefined);
-        
+        const hasDeviceInfo = (data.inIntegratedGateId !== undefined || data.outIntegratedGateId !== undefined);
+
         if (hasDeviceInfo) {
             const deviceIds = [];
-            if (data.inIntegratedGate?.id) deviceIds.push(data.inIntegratedGate.id);
-            if (data.outIntegratedGate?.id) deviceIds.push(data.outIntegratedGate.id);
+            if (data.inIntegratedGateId) deviceIds.push(data.inIntegratedGateId);
+            if (data.outIntegratedGateId) deviceIds.push(data.outIntegratedGateId);
 
             // DeviceRepository를 통해 pf_devices 테이블 갱신
             await deviceRepository.assignToLane(id, deviceIds, client);
@@ -153,4 +162,72 @@ exports.delete = async (id) => {
     }
     
     return deletedLane;
+};
+
+/**
+ * [Helper] 장비 할당 유효성 검사
+ * - 1. 장비 존재 여부
+ * - 2. 이미 다른 차선에서 사용 중인지 확인
+ * - 3. 장비 방향(Direction) 일치 여부 확인
+ */
+const validateLaneDevices = async (inGateId, outGateId, currentLaneId = null) => {
+    const targetIds = [];
+    if (inGateId) targetIds.push(inGateId);
+    if (outGateId) targetIds.push(outGateId);
+
+    if (targetIds.length === 0) return;
+
+    // 장비 정보 조회
+    const devices = await deviceRepository.findAllByIds(targetIds);
+    const deviceMap = devices.reduce((acc, cur) => {
+        acc[cur.id] = cur;
+        return acc;
+    }, {});
+
+    // 1. 입구 통합 차단기 검증
+    if (inGateId) {
+        const device = deviceMap[inGateId];
+        if (!device) {
+            const err = new Error(`입구 통합 차단기(ID: ${inGateId})를 찾을 수 없습니다.`);
+            err.status = 404;
+            throw err;
+        }
+
+        // 이미 다른 차선이 사용 중인지 (Update 시 자기 자신은 제외)
+        if (device.laneId && device.laneId !== currentLaneId) {
+            const err = new Error(`장비 '${device.name}'은(는) 이미 다른 차선에 할당되어 있습니다.`);
+            err.status = 409;
+            throw err;
+        }
+
+        // 방향 검사 (IN 이어야 함)
+        if (device.direction && device.direction !== 'IN') {
+            const err = new Error(`장비 '${device.name}'의 설정 방향(${device.direction})이 입구(IN)와 일치하지 않습니다.`);
+            err.status = 400;
+            throw err;
+        }
+    }
+
+    // 2. 출구 통합 차단기 검증
+    if (outGateId) {
+        const device = deviceMap[outGateId];
+        if (!device) {
+            const err = new Error(`출구 통합 차단기(ID: ${outGateId})를 찾을 수 없습니다.`);
+            err.status = 404;
+            throw err;
+        }
+
+        if (device.laneId && device.laneId !== currentLaneId) {
+            const err = new Error(`장비 '${device.name}'은(는) 이미 다른 차선에 할당되어 있습니다.`);
+            err.status = 409;
+            throw err;
+        }
+
+        // 방향 검사 (OUT 이어야 함)
+        if (device.direction && device.direction !== 'OUT') {
+            const err = new Error(`장비 '${device.name}'의 설정 방향(${device.direction})이 출구(OUT)와 일치하지 않습니다.`);
+            err.status = 400;
+            throw err;
+        }
+    }
 };

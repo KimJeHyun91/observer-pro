@@ -24,8 +24,8 @@ exports.getDeviceControllers = [
         .optional()
         .isString().withMessage('sortBy는 문자열이어야 합니다.')
         .trim()
-        .isIn(['name', 'code', 'createdAt', 'updatedAt'])
-        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, createdAt, updatedAt)'),
+        .isIn(['name', 'code', 'siteId', 'createdAt', 'updatedAt'])
+        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, siteId, createdAt, updatedAt)'),
 
     query('sortOrder')
         .optional()
@@ -33,6 +33,14 @@ exports.getDeviceControllers = [
         .isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'여야 합니다."),
     
     // 기본 검색
+    query('siteId')
+        .optional()
+        .isUUID().withMessage('siteId는 UUID 형식이어야 합니다.'),
+
+    query('type')
+        .optional()
+        .isIn(['SERVER', 'EMBEDDED', 'MIDDLEWARE']).withMessage("type은 'SERVER', 'EMBEDDED', 'MIDDLEWARE' 중 하나여야 합니다."),
+
     query('name')
         .optional()
         .isString().withMessage('name은 문자열이어야 합니다.')
@@ -42,10 +50,6 @@ exports.getDeviceControllers = [
         .optional()
         .isString().withMessage('code은 문자열이어야 합니다.')
         .trim(),
-
-    query('siteId')
-        .optional()
-        .isUUID().withMessage('siteId는 UUID 형식이어야 합니다.'),
 
     body('ipAddress')
         .optional()
@@ -57,11 +61,7 @@ exports.getDeviceControllers = [
 
     query('status')
         .optional()
-        .isIn(['ONLINE', 'OFFLINE', 'ERROR']).withMessage("status은 'ONLINE', 'OFFLINE', 'ERROR' 중 하나여야 합니다."),
-
-    query('type')
-        .optional()
-        .isIn(['SERVER', 'EMBEDDED', 'MIDDLEWARE']).withMessage("type은 'SERVER', 'EMBEDDED', 'MIDDLEWARE' 중 하나여야 합니다.")
+        .isIn(['ONLINE', 'OFFLINE', 'ERROR']).withMessage("status은 'ONLINE', 'OFFLINE', 'ERROR' 중 하나여야 합니다.")
 ];
 
 /**
@@ -77,7 +77,7 @@ exports.getDeviceController = [
  */
 exports.createDeviceController = [
     body('siteId')
-        .notEmpty().withMessage('siteId는 필수입니다.')
+        .optional()
         .isUUID().withMessage('siteId는 UUID 형식이어야 합니다.'),
 
     body('type')

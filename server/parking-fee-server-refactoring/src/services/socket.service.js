@@ -1,31 +1,41 @@
 const logger = require("../../../logger");
 
-// 사이트(Site) 목록 갱신 신호 (Ping)
-exports.emitSiteRefresh = () => {
+/**
+ * 소켓 이벤트를 전송하는 공통 함수
+ * @param {string} eventName - 소켓 이벤트 명
+ * @param {string} logLabel - 로그에 표시할 대상 이름
+ */
+const emitRefreshSignal = (eventName, logLabel) => {
     if (global.websocket) {
-        global.websocket.emit("pf_site-update");
-        logger.debug("[Socket] Sent site refresh signal");
+        global.websocket.emit(eventName, { status: 'OK' });
+        logger.debug(`[Socket] Sent ${logLabel} refresh signal`);
     } else {
         logger.warn("[Socket] Global websocket is not initialized.");
     }
 };
 
-// 구역(Zone) 목록 갱신 신호 (Ping)
-exports.emitZoneRefresh = () => {
-    if (global.websocket) {
-        global.websocket.emit("pf_zone-update");
-        logger.debug("[Socket] Sent zone refresh signal");
-    } else {
-        logger.warn("[Socket] Global websocket is not initialized.");
-    }
-};
+// --- Export Functions ---
 
-// 차선(Lane) 목록 갱신 신호 (Ping)
-exports.emitLaneRefresh = () => {
-    if (global.websocket) {
-        global.websocket.emit("pf_lane-update");
-        logger.debug("[Socket] Sent lane refresh signal");
-    } else {
-        logger.warn("[Socket] Global websocket is not initialized.");
-    }
-};
+// 사이트(Site)
+exports.emitSiteRefresh = () => emitRefreshSignal('pf_site-update', 'site');
+
+// 구역(Zone)
+exports.emitZoneRefresh = () => emitRefreshSignal('pf_zone-update', 'zone');
+
+// 차선(Lane)
+exports.emitLaneRefresh = () => emitRefreshSignal('pf_lane-update', 'lane');
+
+// 장비제어기(Device Controller)
+exports.emitDeviceControllerRefresh = () => emitRefreshSignal('pf_device_controller-update', 'device controller');
+
+// 장비(Device)
+exports.emitDeviceRefresh = () => emitRefreshSignal('pf_device-update', 'device');
+
+// 블랙리스트(Blacklist)
+exports.emitBlacklistRefresh = () => emitRefreshSignal('pf_blacklist-update', 'blacklist');
+
+// 회원(Member)
+exports.emitMemberRefresh = () => emitRefreshSignal('pf_member-update', 'member');
+
+// 회원 결제 기록(Member Payment History)
+exports.emitMemberPaymentHistoryRefresh = () => emitRefreshSignal('pf_member-update', 'member');

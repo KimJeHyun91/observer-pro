@@ -32,7 +32,7 @@ exports.findDetail = async (req, res, next) => {
 exports.create = async (req, res, next) => {
     try {
         await deviceControllerService.create(req.body);
-        socketService.emitZoneRefresh();
+        socketService.emitDeviceControllerRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });            
     } catch (error) {
         next(error);
@@ -46,7 +46,7 @@ exports.update = async (req, res, next) => {
     try {
         const { id } = req.params;
         await deviceControllerService.update(id, req.body);
-        socketService.emitZoneRefresh();
+        socketService.emitDeviceControllerRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);
@@ -60,7 +60,7 @@ exports.delete = async (req, res, next) => {
     try {
         const { id } = req.params;
         await deviceControllerService.delete(id);
-        socketService.emitZoneRefresh();
+        socketService.emitDeviceControllerRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);
@@ -74,7 +74,7 @@ exports.multipleDelete = async (req, res, next) => {
     try {
         const { ids } = req.body;
         await deviceControllerService.multipleDelete(ids);
-        socketService.emitZoneRefresh();
+        socketService.emitDeviceControllerRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);
@@ -88,7 +88,7 @@ exports.sync = async (req, res, next) => {
     try {
         const { id } = req.params;
         await deviceControllerService.sync(id);
-        socketService.emitZoneRefresh();
+        socketService.emitDeviceControllerRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);

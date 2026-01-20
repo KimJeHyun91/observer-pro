@@ -353,23 +353,6 @@ module.exports = {
             blacklistAction: 'WARN',
             isSelected: false
         }
-      },
-
-      // ==========================================
-      // [5] 휴일/특수일 정책 (HOLIDAY)
-      // ==========================================
-      {
-        siteId: siteId,
-        type: 'HOLIDAY',
-        name: '주말/공휴일 요금 적용',
-        description: '[설정 필요] 공휴일 그룹과 적용할 요금 정책을 연결하세요.',
-        code: 'HOL_WEEKEND_APPLY',
-        config: {
-            // 실제 운영 시에는 pf_holidays 테이블의 ID와 pf_policies(FEE)의 ID를 연결해야 함
-            // 초기화 시점에는 ID를 알 수 없으므로 null 혹은 프론트엔드에서 설정 유도
-            holidayId: null, 
-            holidayFeePolicyId: null 
-        }
       }
     ];
   }

@@ -3,7 +3,6 @@ const humps = require('humps');
 
 /**
  * 목록 조회 (Find All)
- * - Explicit Mapping 방식 (명시적 조건 처리)
  */
 exports.findAll = async (filters, sortOptions, limit, offset) => {
     const SORT_MAPPING = {
@@ -11,7 +10,7 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         updatedAt: 'updated_at',
         name: 'name',
         code: 'code',
-        status: 'status'
+        siteId: 'site_id'
     };
     const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
 
@@ -24,11 +23,11 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         values.push(filters.siteId);
     }
     if (filters.name) {
-        conditions.push(`name LIKE $${values.length + 1}`);
+        conditions.push(`name ILIKE $${values.length + 1}`);
         values.push(`%${filters.name}%`);
     }
     if (filters.code) {
-        conditions.push(`code = $${values.length + 1}`);
+        conditions.push(`code ILIKE $${values.length + 1}`);
         values.push(`%${filters.code}%`);
     }
 

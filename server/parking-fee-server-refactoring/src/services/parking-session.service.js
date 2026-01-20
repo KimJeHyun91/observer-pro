@@ -426,7 +426,7 @@
 //         }
 
 //         // 완료된 세션인지 확인 (완료된 경우 핵심 정보 수정 불가)
-//         const isCompleted = ['COMPLETED', 'FORCE_COMPLETED', 'CANCELLED', 'RUNAWAY', 'GHOST_EXIT'].includes(session.status);
+//         const isCompleted = ['COMPLETED', 'FORCE_COMPLETED', 'CANCELED', 'RUNAWAY', 'GHOST_EXIT'].includes(session.status);
         
 //         // 업데이트할 데이터를 담을 객체
 //         const updatePayload = {};

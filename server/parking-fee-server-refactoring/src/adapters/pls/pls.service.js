@@ -607,3 +607,263 @@
 //         return map;
 //     }
 // }
+
+const { getAdapter } = require('../adapter.factory');
+const deviceService = require('../../services/device.service'); 
+const parkingProcessService = require('../../services/parking-process.service'); 
+const deviceControllerRepository = require('../../repositories/device-controller.repository');
+const logger = require('../../../../logger');
+
+/**
+ * [Public] 1. LPR 데이터 처리
+ */
+exports.processLprData = async (lprRawData) => {
+    const { lp, location, ip, port, loop_event_time } = lprRawData;
+    const carNumber = lp ? lp.replace(/\s/g, '') : '미인식';
+    const eventTime = loop_event_time ? new Date(loop_event_time) : new Date();
+
+    logger.info(`[PLS LPR] 차량 인식: ${carNumber} (Device: ${ip}:${port})`);
+
+    try {
+        // [Context 조회 로직 Inline]
+        const targetIp = (ip === 'localhost' || !ip) ? '127.0.0.1' : ip;
+        const targetPort = parseInt(port, 10);
+
+        // 1. IP/Port로 장비 조회
+        const context = await deviceService.findByIpAddressAndPort(targetIp, targetPort);
+
+        if (!context) {
+            logger.warn(`[PlsService] LPR 장비 식별 실패: ${location} (${targetIp}:${targetPort})`);
+            return;
+        }
+
+        // [Domain Logic] 입출차 판단
+        const processResult = await parkingProcessService.processEntryExit({
+            carNumber,
+            eventTime,
+            ...context 
+        });
+
+        // 차단기 제어
+        if (processResult.shouldOpenGate) {
+            logger.info(`[PLS LPR] 차단기 개방 실행 -> ${context.location}`);
+            const adapter = await getAdapter(context.deviceControllerId);
+            await adapter.openGate(context.location);
+        } else {
+            logger.info(`[PLS LPR] 차단기 미개방 (사유: ${processResult.message})`);
+        }
+
+    } catch (error) {
+        logger.error(`[PlsService] LPR 처리 중 오류: ${error.message}`);
+    }
+};
+
+/**
+ * [Public] 2. 차단기 상태 변경 이벤트 처리
+ */
+exports.updateGateStatus = async (gateRawData) => {
+    const { location, ip, port, gate_control, loop_event_time } = gateRawData;
+    
+    try {
+        // [Context 조회 로직 Inline]
+        const targetIp = (ip === 'localhost' || !ip) ? '127.0.0.1' : ip;
+        const targetPort = parseInt(port, 10);
+
+        const context = await deviceService.findByIpAddressAndPort(targetIp, targetPort);
+
+        if (!context) {
+            logger.warn(`[PlsService] Gate 장비 식별 실패: ${location} (${targetIp}:${targetPort})`);
+            return;
+        }
+
+        if (gate_control === 'down') {
+            logger.info(`[PLS Gate] 차단기 닫힘 확인 -> 통과 완료 처리 (${context.location})`);
+            await parkingProcessService.confirmGatePassage({
+                laneId: context.laneId,
+                eventTime: loop_event_time
+            });
+        }
+    } catch (error) {
+        logger.error(`[PlsService] Gate 상태 처리 오류: ${error.message}`);
+    }
+};
+
+/**
+ * [Public] 3. 결제 완료 처리
+ */
+exports.processPaymentSuccess = async (paymentData) => {
+    const { lp: carNumber, parkingfee: paidFee, location, ip, port } = paymentData;
+    
+    try {
+        // [Context 조회 로직 Inline] - 결제 로그를 정확히 남기기 위함
+        const targetIp = (ip === 'localhost' || !ip) ? '127.0.0.1' : ip;
+        const targetPort = parseInt(port, 10);
+
+        let context = await deviceService.findOneByDeviceNetwork(targetIp, targetPort);
+        if (!context && location) {
+            context = await deviceService.findOneByLocation(location);
+        }
+
+        // Context가 없으면 raw location 사용
+        const locationName = context ? context.location : location;
+
+        await parkingProcessService.applyPayment({
+            carNumber,
+            paidFee,
+            location: locationName
+        });
+    } catch (error) {
+        logger.error(`[PlsService] 결제 처리 오류: ${error.message}`);
+    }
+};
+
+/**
+ * [Public] 4. 차량 번호 검색 (사전 정산기용)
+ */
+exports.searchCarAndReply = async ({ searchKey, targetLocation, targetIp, targetPort }) => {
+    try {
+        // [Context 조회 로직 Inline]
+        const normalizedIp = (targetIp === 'localhost' || !targetIp) ? '127.0.0.1' : targetIp;
+        const portNum = parseInt(targetPort, 10);
+
+        let context = await deviceService.findOneByDeviceNetwork(normalizedIp, portNum);
+        if (!context && targetLocation) {
+            context = await deviceService.findOneByLocation(targetLocation);
+        }
+
+        if (!context) {
+            logger.warn(`[PlsService] 검색 요청 장비 식별 실패: ${targetLocation} (${normalizedIp}:${portNum})`);
+            return;
+        }
+
+        // 차량 검색 수행
+        const carList = await parkingProcessService.searchCarsByRearNumber(searchKey);
+
+        // 결과 전송
+        const adapter = await getAdapter(context.deviceControllerId);
+        await adapter.sendCarSearchResult({
+            location: context.location, 
+            targetIp,
+            targetPort,
+            carList
+        });
+    } catch (error) {
+        logger.error(`[PlsService] 차량 검색 오류: ${error.message}`);
+    }
+};
+
+/**
+ * [Public] 5. 장비 동기화 (Sync Devices)
+ */
+exports.syncDevices = async (deviceController) => {
+    logger.info(`[PlsService] 장비 동기화 시작 (ID: ${deviceController.id})`);
+
+    try {
+        const adapter = await getAdapter(deviceController);
+        const config = await adapter.getSystemConfig(); 
+        const docs = config.docs || {}; 
+
+        // -----------------------------------------------------------
+        // Local Helpers (함수 내부에서만 사용)
+        // -----------------------------------------------------------
+        
+        // 방향 추론
+        const inferDirection = (loaction, direction) => {
+            if (direction && direction !== 'undefined') return direction.toUpperCase();
+            if (!loaction) return 'UNKNOWN';
+            if (loaction.match(/입차|입구|진입|in/i)) return 'IN';
+            if (loaction.match(/출차|출구|진출|out/i)) return 'OUT';
+            return 'UNKNOWN';
+        };
+
+        // 이름 생성
+        const generateName = (location, type, value) => `${location}_${type}_${String(value).split('.').pop()}`;
+
+        // DB 저장 (Upsert)
+        const saveDevice = async (item, type, name, parentId = null, directionOverride = null) => {
+            const location = item.location || 'UNKNOWN';
+            const ipAddress = (item.ip === 'localhost' || !item.ip) ? '127.0.0.1' : item.ip;
+            const direction = directionOverride || inferDirection(location, item.direction);
+
+            return await deviceService.upsert({
+                deviceControllerId: deviceController.id,
+                parentDeviceId: parentId,
+                type: type,
+                name: name,
+                description: item.description,
+                location: location,
+                direction: direction,
+                ipAddress: ipAddress,
+                port: item.port,
+                status: 'ONLINE',
+                modelName: null
+            });
+        };
+
+        // -----------------------------------------------------------
+        // Sync Logic Execution
+        // -----------------------------------------------------------
+
+        const parentMap = new Map();
+        
+        // 1. 부모 장비
+        if (Array.isArray(docs.iotb_list)) {
+            for (const item of docs.iotb_list) {
+                const name = generateName(item.location, 'INTEGRATED', item.index);
+                const saved = await saveDevice(item, 'INTEGRATED_GATE', name);
+                if (saved) parentMap.set(item.location, saved.id);
+            }
+        }
+
+        // 2. 카메라
+        if (Array.isArray(docs.camera_list)) {
+            for (const item of docs.camera_list) {
+                const description = item.description || '';
+                let type = 'LPR';
+                if (description.includes('정산기')) type = 'PINHOLE_CAMERA';
+
+                const name = generateName(item.location, type, item.ip);
+                const parentId = parentMap.get(item.location);
+                await saveDevice(item, type, name, parentId);
+            }
+        }
+
+        // 3. 전광판
+        if (Array.isArray(docs.ledd_list)) {
+            for (const item of docs.ledd_list) {
+                const name = generateName(item.location, 'LED', item.index);
+                const parentId = parentMap.get(item.location);
+                await saveDevice(item, 'LED', name, parentId, item.direction?.toUpperCase());
+            }
+        }
+
+        // 4. 출구 정산기
+        if (Array.isArray(docs.pt_list)) {
+            for (const item of docs.pt_list) {
+                const name = generateName(item.location, 'KIOSK', item.ip);
+                const parentId = parentMap.get(item.location);
+                await saveDevice(item, 'KIOSK', name, parentId, 'OUT');
+            }
+        }
+
+        // 5. 사전 정산기
+        if (Array.isArray(docs.pre_pt_list)) {
+            for (const item of docs.pre_pt_list) {
+                const name = generateName(item.location, 'KIOSK', item.ip);
+                await saveDevice(item, 'KIOSK', name, null, null); 
+            }
+        }
+
+        await deviceControllerRepository.update(deviceController.id, { 
+            status: 'ONLINE'
+        });
+        
+        logger.info(`[PlsService] 장비 동기화 완료 (Parents: ${parentMap.size})`);
+        return true;
+
+    } catch (error) {
+        logger.error(`[PlsService] 장비 동기화 실패: ${error.message}`);
+        await deviceControllerRepository.update(deviceController.id, { status: 'OFFLINE' });
+        throw error;
+    }
+};

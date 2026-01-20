@@ -142,21 +142,25 @@ exports.update = async (id, data) => {
             throw err;
         }
 
-        // 1. 장비 제어기 관계 수정
-        if (data.updateAction && data.deviceControllerId) {
-            await deviceControllerRepository.updateSiteRelation(
-                id, 
-                data.deviceControllerId, 
-                data.updateAction, 
+        // 1. 장비 제어기 관계 수정 (토글 방식)
+        if (data.deviceControllerId) {
+            // 1-1. DB 업데이트 (토글) 실행
+            const updatedController = await deviceControllerRepository.toggleSiteRelation(
+                id, // siteId
+                data.deviceControllerId,
                 client
             );
 
-            //  메모리 상의 site.deviceControllers도 최신화 (Health Check를 위해)
-            if (data.updateAction === 'ADD') {
-                // 임시로 ID만 추가 (checkSiteHealth는 ID만 있으면 됨)
-                site.deviceControllers.push({ id: data.deviceControllerId });
-            } else if (data.updateAction === 'REMOVE') {
-                // 목록에서 제거
+            // 1-2. 메모리 상의 site.deviceControllers 최신화 (Health Check용)
+            // updatedController가 존재하고, 반환된 site_id가 현재 사이트 ID와 같다면 -> "추가됨"
+            if (updatedController && updatedController.siteId === id) {
+                // 이미 있는지 확인 후 추가 (중복 방지)
+                const exists = site.deviceControllers.find(dc => dc.id === data.deviceControllerId);
+                if (!exists) {
+                    site.deviceControllers.push({ id: data.deviceControllerId });
+                }
+            } else {
+                // site_id가 NULL이거나 다른 값이라면 -> "제거됨"
                 site.deviceControllers = site.deviceControllers.filter(
                     dc => dc.id !== data.deviceControllerId
                 );

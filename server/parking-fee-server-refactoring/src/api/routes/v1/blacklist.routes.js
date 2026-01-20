@@ -1,44 +1,43 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../../controllers/blacklist.controller');
-const validator = require('../../validators/blacklist.validator');
+const blacklistController = require('../../controllers/blacklist.controller');
+const blacklistValidator = require('../../validators/blacklist.validator');
 const validate = require('../../middlewares/validator');
+const { restrictTo } = require('../../middlewares/auth.middleware');
 
 /**
  * @route   GET /api/v1/blacklists
  * @desc    블랙리스트(Black List) 목록 조회
- * - 모든 컬럼에 대한 검색 지원
- * - 정렬 및 페이지네이션 지원
- * @access  Public (또는 Protected)
+ * @access  Public
  */
-router.get('/', validator.getBlacklists, validate, controller.findAll);
+router.get('/', restrictTo(['admin', 'user']), blacklistValidator.getBlacklists, validate, blacklistController.findAll);
 
 /**
  * @route   GET /api/v1/blacklists/:id
  * @desc    블랙리스트(Black List) 상세 조회
  * @access  Public
  */
-router.get('/:id', validator.getBlacklist, validate, controller.findDetail);
+router.get('/:id', restrictTo(['admin', 'user']), blacklistValidator.getBlacklist, validate, blacklistController.findDetail);
 
 /**
  * @route   POST /api/v1/blacklists
  * @desc    신규 블랙리스트(Black List) 등록
  * @access  Admin
  */
-router.post('/', validator.createBlacklist, validate, controller.create);
+router.post('/', restrictTo(['admin', 'user']), blacklistValidator.createBlacklist, validate, blacklistController.create);
 
 /**
  * @route   PATCH /api/v1/blacklists/:id
- * @desc    블랙리스트(Black List) 정보 수정 (Partial Update)
+ * @desc    블랙리스트(Black List) 정보 수정
  * @access  Admin
  */
-router.patch('/:id', validator.updateBlacklist, validate, controller.update);
+router.patch('/:id', restrictTo(['admin']), blacklistValidator.updateBlacklist, validate, blacklistController.update);
 
 /**
  * @route   DELETE /api/v1/blacklists/:id
- * @desc    블랙리스트(Black List) 삭제 (Delete)
+ * @desc    블랙리스트(Black List) 삭제
  * @access  Admin
  */
-router.delete('/:id', validator.deleteBlacklist, validate, controller.delete);
+router.delete('/:id', restrictTo(['admin']), blacklistValidator.deleteBlacklist, validate, blacklistController.delete);
 
 module.exports = router;

@@ -1,64 +1,78 @@
-const DeviceControllerRepository = require('../repositories/device-controller.repository');
-const PlsAdapter = require('./pls/pls.adapter');
+const deviceControllerRepository = require('../repositories/device-controller.repository');
 const logger = require('../../../logger');
+const createPlsAdapter = require('./pls/pls.adapter');
 
 /**
  * ==============================================================================
- * Adapter Factory
+ * Adapter Creator Map (Strategy Pattern)
  * ------------------------------------------------------------------------------
- * 역할:
- * 1. 장비 제어기 ID(deviceControllerId)를 입력받습니다.
- * 2. DB에서 해당 제어기의 설정 정보(IP, Port, Protocol Type 등)를 조회합니다.
- * 3. 프로토콜 타입(PLS, Hikvision 등)에 맞는 구체적인 Adapter 인스턴스를 생성하여 반환합니다.
+ * DB의 프로토콜 코드(code)와 '어댑터 생성 함수'를 매핑합니다.
+ * 클래스가 아니므로 대문자(PlsAdapter)가 아닌 동사형(createPlsAdapter) 변수명을 사용합니다.
  * ==============================================================================
  */
-class AdapterFactory {
-    constructor() {
-        this.deviceControllerRepository = new DeviceControllerRepository();
+const ADAPTER_CREATORS = {
+    'PLS': createPlsAdapter
+};
+
+/**
+ * [Helper] 인터페이스 유효성 검사 (Duck Typing Check)
+ * BaseAdapter 상속을 제거했으므로, 생성된 객체가 필수 메서드를 가지고 있는지 확인합니다.
+ * * @param {object} adapter - 생성된 어댑터 객체
+ * @param {string} protocol - 프로토콜 이름 (로깅용)
+ */
+const validateInterface = (adapter, protocol) => {
+    // 서비스 로직에서 반드시 호출하는 메서드 목록
+    const requiredMethods = [
+        'openGate', 
+        'closeGate', 
+        'sendDisplay', 
+        'sendPaymentInfo'
+    ];
+    
+    const missing = requiredMethods.filter(method => typeof adapter[method] !== 'function');
+    
+    if (missing.length > 0) {
+        // 개발 환경에서는 즉시 알 수 있도록 경고 로그 출력
+        logger.warn(`[AdapterFactory] ⚠️ ${protocol} 어댑터에 필수 구현 누락됨: ${missing.join(', ')}`);
     }
+};
 
-    /**
-     * 장비 제어기 ID를 받아 적절한 어댑터 인스턴스를 반환합니다.
-     * * @param {string} deviceControllerId - DB의 device_controllers.id (UUID)
-     * @returns {Promise<BaseAdapter>} 해당 프로토콜을 구현한 Adapter 인스턴스
-     * @throws {Error} 장비 제어기 정보를 찾을 수 없거나 지원하지 않는 프로토콜일 때
-     */
-    async getAdapter(deviceControllerId) {
-
-        if (!deviceControllerId) {
-            throw new Error('[AdapterFactory] deviceControllerId가 유효하지 않습니다.');
+/**
+ * ==============================================================================
+ * getAdapter (Main Factory Function)
+ * ------------------------------------------------------------------------------
+ * 역할: DeviceController를 받아, 해당 장비와 통신 가능한 '함수들의 집합(객체)'을 반환
+ * ==============================================================================
+ */
+exports.getAdapter = async (deviceController) => {
+    if (!deviceController) {
+            throw new Error(`[AdapterFactory] 장비 제어기 정보를 찾을 수 없습니다. (ID: ${deviceController.id})`);
         }
+
+    try {
+        // 1. 프로토콜 식별 (대소문자 무시 처리)
+        const protocolCode = (deviceController.code || '').toUpperCase();
         
-        try {
-            // 1. DB에서 장비 제어기 설정 정보 조회
-            const deviceController = await this.deviceControllerRepository.findById(deviceControllerId);
+        // 2. 생성 함수(Creator) 찾기
+        const createAdapter = ADAPTER_CREATORS[protocolCode];
 
-            if (!deviceController) {
-                throw new Error(`[AdapterFactory] 장비 제어기 정보를 찾을 수 없습니다. ID: ${deviceControllerId}`);
-            }
-
-            // 2. 장비 프로토콜 코드(Type) 식별
-            const protocolCode = deviceController.code;
-
-            // 3. 타입에 따른 어댑터 생성 및 반환
-            // 여기서 생성자에 config 객체 전체를 넘겨줍니다. (BaseAdapter 생성자 시그니처와 일치)
-            switch (protocolCode.toUpperCase()) {
-                case 'PLS': 
-                    return new PlsAdapter(deviceController);
-                
-                // [확장 포인트] 추후 다른 장비(예: HIKVISION, DAHUA 등)가 추가되면 case만 늘리면 됩니다.
-                // case 'HIKVISION':
-                //      return new HikvisionAdapter(deviceController);
-
-                default:
-                    throw new Error(`[AdapterFactory] 지원하지 않는 장비 프로토콜입니다: ${protocolCode}`);
-            }
-
-        } catch (error) {
-            logger.error(`[AdapterFactory] 어댑터 생성 실패 (ID: ${deviceControllerId}): ${error.message}`);
-            throw error;
+        if (!createAdapter) {
+            throw new Error(`[AdapterFactory] 지원하지 않는 프로토콜입니다: ${protocolCode}`);
         }
-    }
-}
 
-module.exports = new AdapterFactory();
+        // 3. 어댑터 객체 생성 (함수형: new 키워드 사용 안 함)
+        // -> 내부적으로 클로저를 통해 config와 client를 간직한 객체가 반환됨
+        const adapterInstance = createAdapter(deviceController);
+
+        // 4. [Safety] 인터페이스 검사 (주로 개발/스테이징 단계에서 유용)
+        if (process.env.NODE_ENV !== 'production') {
+            validateInterface(adapterInstance, protocolCode);
+        }
+
+        return adapterInstance;
+
+    } catch (error) {
+        logger.error(`[AdapterFactory] 어댑터 생성 실패: ${error.message}`);
+        throw error;
+    }
+};

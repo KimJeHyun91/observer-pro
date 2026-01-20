@@ -11,7 +11,8 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         updatedAt: 'updated_at',
         name: 'name',
         code: 'code',
-        type: 'type'
+        siteId: 'site_id',
+        zoneId: 'zone_id'
     };
     const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
     const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
@@ -25,7 +26,7 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         values.push(filters.zoneId);
     }
     if (filters.name) {
-        conditions.push(`l.name LIKE $${values.length + 1}`);
+        conditions.push(`l.name ILIKE $${values.length + 1}`);
         values.push(`%${filters.name}%`);
     }
     if (filters.type) {
@@ -33,8 +34,8 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         values.push(filters.type);
     }
     if (filters.code) {
-        conditions.push(`l.code = $${values.length + 1}`);
-        values.push(filters.code);
+        conditions.push(`l.code ILIKE $${values.length + 1}`);
+        values.push(`%${filters.code}%`);
     }
     
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -46,7 +47,14 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
 
     // 4. 데이터 조회 쿼리 (장비 정보 Aggregation 포함)
     const query = `
-        SELECT l.*, 
+        SELECT
+            id,
+            zone_id,
+            name,
+            description,
+            code,
+            created_at,
+            updated_at, 
             COALESCE(
                 (SELECT json_agg(
                     json_build_object(
