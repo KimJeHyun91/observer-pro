@@ -17,114 +17,79 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
     const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'm.created_at';
     const sortOrder = (sortOptions.sortOrder && sortOptions.sortOrder.toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
 
-    // 2. JOIN 구문 정의 (LATERAL JOIN)
-    // - 필터 로직에서 'h' 테이블 별칭을 참조하므로 먼저 정의하는 것이 가독성에 좋습니다.
-    const joinClause = `
-        LEFT JOIN LATERAL (
-            SELECT * FROM pf_member_payment_histories ph
-            WHERE ph.member_id = m.id 
-              AND ph.status = 'SUCCESS'
-            ORDER BY ph.end_date DESC
-            LIMIT 1
-        ) h ON true
-    `;
-
     const conditions = [];
     const values = [];
+    let paramIndex = 1;
 
     // 2. 필터 조건 생성 (Explicit)
 
     // [정확 일치]
     if (filters.siteId) {
-        conditions.push(`m.site_id = $${values.length + 1}`);
+        conditions.push(`m.site_id = $${paramIndex++}`);
         values.push(filters.siteId);
     }
     if (filters.phoneHash) {
-        conditions.push(`m.phone_hash = $${values.length + 1}`);
+        conditions.push(`m.phone_hash = $${paramIndex++}`);
         values.push(filters.phoneHash);
     }
 
-    // [부분 일치 (ILIKE)] - 검색 편의성 위해 대소문자 무시
+    // [부분 일치 (ILIKE)]
     if (filters.carNumber) {
-        conditions.push(`m.car_number ILIKE $${values.length + 1}`);
+        conditions.push(`m.car_number ILIKE $${paramIndex++}`);
         values.push(`%${filters.carNumber}%`);
     }
     if (filters.name) {
-        conditions.push(`m.name ILIKE $${values.length + 1}`);
+        conditions.push(`m.name ILIKE $${paramIndex++}`);
         values.push(`%${filters.name}%`);
     }
     if (filters.code) {
-        conditions.push(`m.code ILIKE $${values.length + 1}`);
+        conditions.push(`m.code ILIKE $${paramIndex++}`);
         values.push(`%${filters.code}%`);
     }
     if (filters.groupName) {
-        conditions.push(`m.group_name ILIKE $${values.length + 1}`);
+        conditions.push(`m.group_name ILIKE $${paramIndex++}`);
         values.push(`%${filters.groupName}%`);
     }
-    if (filters.note) {
-        conditions.push(`m.note ILIKE $${values.length + 1}`);
-        values.push(`%${filters.note}%`);
-    }
-    if (filters.description) {
-        conditions.push(`m.description ILIKE $${values.length + 1}`);
-        values.push(`%${filters.description}%`);
-    }
     if (filters.phoneLastDigits) {
-        conditions.push(`m.phone_last_digits ILIKE $${values.length + 1}`);
+        conditions.push(`m.phone_last_digits ILIKE $${paramIndex++}`);
         values.push(`%${filters.phoneLastDigits}%`);
     }
 
-    // [상태 검색] - 값을 push하지 않고 쿼리 문자열만 추가 (DB 컬럼끼리 비교)
+    // [상태 검색] - 캐시된 날짜 컬럼 활용 (JOIN 불필요)
     if (filters.status) {
         if (filters.status === 'ACTIVE') {
-            conditions.push(`h.end_date >= CURRENT_DATE`);
+            conditions.push(`m.membership_end_date >= CURRENT_DATE AND m.membership_start_date <= CURRENT_DATE`);
         } else if (filters.status === 'UPCOMING') {
-            conditions.push(`h.start_date > CURRENT_DATE`);
+            conditions.push(`m.membership_start_date > CURRENT_DATE`);
         } else if (filters.status === 'EXPIRED') {
-            // 이력이 없거나(NULL) 종료일이 지난 경우
-            conditions.push(`(h.end_date < CURRENT_DATE OR h.id IS NULL)`);
+            conditions.push(`(m.membership_end_date < CURRENT_DATE OR m.membership_end_date IS NULL)`);
         } else if (filters.status === 'EXPIRING') {
-            // 오늘 포함 7일 이내 만료
-            conditions.push(`(h.end_date >= CURRENT_DATE AND h.end_date <= CURRENT_DATE + INTERVAL '7 days')`);
+            // 7일 이내 만료
+            conditions.push(`(m.membership_end_date >= CURRENT_DATE AND m.membership_end_date <= CURRENT_DATE + INTERVAL '7 days')`);
         }
     }
 
     // WHERE 절 조립
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    // 4. 카운트 쿼리 (최적화 적용)
-    // filters.status가 있을 때만 JOIN을 포함하고, 그 외(이름 검색 등)에는 JOIN을 뺍니다.
-    const needsJoinForCount = !!filters.status;
-
+    // 3. 쿼리 실행 (JOIN 제거됨)
     const countQuery = `
-        SELECT COUNT(*) 
-        FROM pf_members m
-        ${needsJoinForCount ? joinClause : ''}
-        ${whereClause}
+        SELECT COUNT(*) FROM pf_members m ${whereClause}
     `;
 
-    // 5. 목록 데이터 조회 쿼리 (항상 JOIN 포함 - 현재 상태 정보를 보여줘야 하므로)
     const query = `
-        SELECT 
-            m.*, 
-            h.start_date as membership_start_date,
-            h.end_date as membership_end_date,
-            h.amount as membership_paid_fee,
-            h.payment_method as membership_paid_method,
-            h.policy_name as membership_policy_name
-        FROM pf_members m
-        ${joinClause}
+        SELECT m.* FROM pf_members m
         ${whereClause}
         ORDER BY ${dbSortBy} ${sortOrder}
-        LIMIT $${values.length + 1} OFFSET $${values.length + 2}
+        LIMIT $${paramIndex++} OFFSET $${paramIndex++}
     `;
 
-    // 병렬 실행
-    const listValues = [...values, limit, offset];
-    
+    // 파라미터 배열 완성
+    values.push(limit, offset);
+
     const [countResult, rowsResult] = await Promise.all([
-        pool.query(countQuery, values),      // 카운트는 limit, offset 제외
-        pool.query(query, listValues)        // 조회는 limit, offset 포함
+        pool.query(countQuery, values.slice(0, values.length - 2)),
+        pool.query(query, values)
     ]);
 
     return {
@@ -284,4 +249,30 @@ exports.delete = async (id) => {
     const { rows } = await pool.query(query, [id]);
     if (rows.length === 0) return null;
     return humps.camelizeKeys(rows[0]);
+};
+
+/**
+ * [시스템용] 멤버십 캐시 정보 업데이트 (핵심)
+ * - Service에서 계산된 최신 상태를 pf_members에 반영
+ */
+exports.updateMembershipCache = async (id, data) => {
+    const query = `
+        UPDATE pf_members
+        SET 
+            membership_status = $2,
+            membership_start_date = $3,
+            membership_end_date = $4,
+            membership_paid_fee = $5,
+            membership_paid_method = $6,
+            updated_at = NOW()
+        WHERE id = $1
+    `;
+    await pool.query(query, [
+        id, 
+        data.membershipStatus, 
+        data.membershipStartDate, 
+        data.membershipEndDate,
+        data.membershipPaidFee,
+        data.membershipPaidMethod
+    ]);
 };

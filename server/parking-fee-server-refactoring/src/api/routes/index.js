@@ -15,7 +15,7 @@ const memberRoutes = require('./v1/member.routes');
 const memberPaymentHistoryRoutes = require('./v1/member-payment-history.routes');
 const blacklistRoutes = require('./v1/blacklist.routes');
 const holidayRoutes = require('./v1/holiday.routes');
-// const policyRoutes = require('./v1/policy.routes');
+const policyRoutes = require('./v1/policy.routes');
 const parkingSessionRoutes = require('./v1/parking-session.routes');
 const statisticsRoutes = require('./v1/statistics.routes');
 
@@ -45,10 +45,10 @@ v1Router.use('/members', memberRoutes);
 v1Router.use('/member-payment-histories', memberPaymentHistoryRoutes);
 v1Router.use('/blacklists', blacklistRoutes);
 v1Router.use('/holidays', holidayRoutes);
-// v1Router.use('/policies', policyRoutes);
+v1Router.use('/policies', policyRoutes);
 v1Router.use('/parking-sessions', parkingSessionRoutes);
 
-v1Router.use('/', statisticsRoutes);
+v1Router.use('/sites/:id/statistics', statisticsRoutes);
 
 // v1 라우터를 '/v1' 경로에 마운트
 router.use('/v1', v1Router);

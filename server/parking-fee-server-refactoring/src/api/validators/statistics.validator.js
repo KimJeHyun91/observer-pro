@@ -1,15 +1,18 @@
 const { param, query } = require('express-validator');
 
-exports.validateGetStatistics = [
-    // [변경] Path Parameter 검증
-    param('siteId')
-        .notEmpty().withMessage('siteId Path Parameter는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+/**
+ * 대시보드(Dashboard) 조회
+ */
+exports.validateGetDashboard = [
+    query('siteId')
+        .notEmpty().withMessage('siteId는 필수입니다.')
+        .isUUID().withMessage('유효한 UUID가 아닙니다.'),
 
-    // [신규] 조회 범위(scope) 검증 (확장성 고려)
-    query('scope')
-        .optional()
-        .trim()
-        .isIn(['TODAY']) // 추후 'week', 'month' 추가 가능
-        .withMessage('지원하지 않는 통계 범위(scope)입니다. (현재는 TODAY만 지원)')
+    query('year')
+        .notEmpty().withMessage('연도(year)를 선택해주세요.')
+        .isInt({ min: 2000, max: 2100 }),
+
+    query('month')
+        .notEmpty().withMessage('월(month)을 선택해주세요.')
+        .isInt({ min: 1, max: 12 })
 ];

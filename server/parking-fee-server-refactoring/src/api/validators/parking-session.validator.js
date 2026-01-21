@@ -1,13 +1,46 @@
 const { body, param, query } = require('express-validator');
 
+const validateId = param('id')
+    .notEmpty().withMessage('id는 필수입니다.')
+    .isUUID().withMessage('유효하지 않은 UUID 형식입니다.');
+
 /**
- * 1. [목록 조회] validateList
- * - 검색 필터 및 페이징 검증 (ID 파라미터 없음)
+ * 주차 세션(Parking Session) 목록 조회 유효성 검사
  */
-exports.validateList = [
-    query('siteId').optional().isUUID().withMessage('siteId는 UUID여야 합니다.'),
+exports.getParkingSessions = [
+    // 페이징
+    query('page')
+        .optional()
+        .isInt({ min: 1 }).withMessage('page는 1이상의 숫자여야 합니다.')
+        .toInt(),
+
+    query('limit')
+        .optional()
+        .isInt({ min: 1 }).withMessage('limit은 1이상의 숫자여야 합니다.')
+        .toInt(),
     
-    query('carNumber').optional().trim(),
+    // 정렬
+    query('sortBy')
+        .optional()
+        .isString().withMessage('sortBy는 문자열이어야 합니다.')
+        .trim()
+        .isIn(['name', 'carNumber', 'siteId', 'createdAt', 'updatedAt'])
+        .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, carNumber, siteId, createdAt, updatedAt)'),
+
+    query('sortOrder')
+        .optional()
+        .toUpperCase()
+        .isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'여야 합니다."),
+
+    query('siteId')
+        .optional()
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
+    
+    query('carNumber')
+        .optional()
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
+        .trim()
+        .customSanitizer(value => value.replace(/\s+/g, '')),
     
     // 기간 검색
     query('startTime').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),

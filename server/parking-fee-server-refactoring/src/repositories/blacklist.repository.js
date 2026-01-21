@@ -56,7 +56,6 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
 
 /**
  * 상세 조회 (Find By ID)
- * - 장비 정보
  */
 exports.findById = async (id) => {
     const query = `SELECT * FROM pf_blacklists WHERE id = $1`;

@@ -39,3 +39,6 @@ exports.emitMemberRefresh = () => emitRefreshSignal('pf_member-update', 'member'
 
 // 회원 결제 기록(Member Payment History)
 exports.emitMemberPaymentHistoryRefresh = () => emitRefreshSignal('pf_member-update', 'member');
+
+// 휴일(Holiday)
+exports.emitHolidayRefresh = () => emitRefreshSignal('pf_holiday-update', 'holiday');

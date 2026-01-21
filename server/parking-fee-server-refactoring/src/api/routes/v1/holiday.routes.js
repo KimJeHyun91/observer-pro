@@ -1,44 +1,43 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../../controllers/holiday.controller');
-const validator = require('../../validators/holiday.validator');
+const holidayController = require('../../controllers/holiday.controller');
+const holidayValidator = require('../../validators/holiday.validator');
 const validate = require('../../middlewares/validator');
+const { restrictTo } = require('../../middlewares/auth.middleware');
 
 /**
  * @route   GET /api/v1/holidays
- * @desc    휴일 목록 조회
- * - 모든 컬럼 검색, 정렬, 페이지네이션 지원
- * @access  Public (또는 Protected)
+ * @desc    휴일(Holiday) 목록 조회
+ * @access  Public
  */
-router.get('/', validator.getHolidays, validate, controller.findAll);
+router.get('/', restrictTo(['admin', 'user']), holidayValidator.getHolidays, validate, holidayController.findAll);
 
 /**
  * @route   GET /api/v1/holidays/:id
- * @desc    휴일 상세 조회
+ * @desc    휴일(Holiday) 상세 조회
  * @access  Public
  */
-router.get('/:id', validator.getHoliday, validate, controller.findDetail);
+router.get('/:id', restrictTo(['admin', 'user']), holidayValidator.getHoliday, validate, holidayController.findDetail);
 
 /**
  * @route   POST /api/v1/holidays
- * @desc    신규 휴일 생성
+ * @desc    신규 휴일(Holiday) 생성
  * @access  Admin
  */
-router.post('/', validator.createHoliday, validate, controller.create);
+router.post('/', restrictTo(['admin']), holidayValidator.createHoliday, validate, holidayController.create);
 
 /**
  * @route   PATCH /api/v1/holidays/:id
- * @desc    휴일 정보 수정 (Partial Update)
+ * @desc    휴일(Holiday) 정보 수정
  * @access  Admin
  */
-router.patch('/:id', validator.updateHoliday, validate, controller.update);
+router.patch('/:id', restrictTo(['admin']), holidayValidator.updateHoliday, validate, holidayController.update);
 
 /**
  * @route   DELETE /api/v1/holidays/:id
- * @desc    휴일 삭제 (Soft/Hard Delete)
- * - deleteMethod 파라미터('SOFT' | 'HARD')에 따라 동작
+ * @desc    휴일(Holiday) 삭제
  * @access  Admin
  */
-router.delete('/:id', validator.deleteHoliday, validate, controller.delete);
+router.delete('/:id', restrictTo(['admin']), holidayValidator.deleteHoliday, validate, holidayController.delete);
 
 module.exports = router;

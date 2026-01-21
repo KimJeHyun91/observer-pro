@@ -1,5 +1,21 @@
-// const PolicyService = require('../../services/policy.service');
-// const policyService = new PolicyService();
+const policyService = require('../../services/policy.service');
+
+/**
+ * 목록 조회 (Find All)
+ * - 검색, 정렬, 페이징 처리가 적용된 목록을 반환합니다.
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ */
+exports.findAll = async (req, res, next) => {
+    try {
+        const params = req.query;
+        const data = await policyService.findAll(params);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
+    }
+}
 
 // /**
 //  * Policy Controller
@@ -21,32 +37,7 @@
 //         }
 //     }
 
-//     /**
-//      * 목록 조회 (Find All)
-//      * - 검색, 정렬, 페이징 처리가 적용된 목록을 반환합니다.
-//      * @param {Object} req - Express request object
-//      * @param {Object} res - Express response object
-//      * @param {Function} next - Express next middleware function
-//      */
-//     async findAll(req, res, next) {
-//         try {
-//             const params = req.query;
-//             const data = await policyService.findAll(params);
-
-//             // 옵저버 요청에 맞춘 반환 형식
-//             // res.status(200).json({ 
-//             //     status: 'OK', 
-//             //     data: {
-     
-//             //         meta: data.meta
-//             //     }
-//             // });
-
-//             res.status(200).json({ status: 'OK', data: data });
-//         } catch (error) {
-//             next(error);
-//         }
-//     }
+//     
 
 //     /**
 //      * 상세 조회 (Find Detail)

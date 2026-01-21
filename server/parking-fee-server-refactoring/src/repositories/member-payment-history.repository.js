@@ -35,19 +35,19 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         conditions.push(`h.payment_method = $${values.length + 1}`);
         values.push(filters.paymentMethod);
     }
-    if (filters.paymentStatus) {
+    if (filters.status) {
         conditions.push(`h.status = $${values.length + 1}`);
-        values.push(filters.paymentStatus);
+        values.push(filters.status);
     }
-
-    // [부분 일치]
     if (filters.amount) {
         conditions.push(`h.amount = $${values.length + 1}`);
         values.push(filters.amount);
     }
+
+    // [부분 일치]
     if (filters.code) {
-        conditions.push(`h.code = $${values.length + 1}`);
-        values.push(filters.code);
+        conditions.push(`h.code ILIKE $${values.length + 1}`);
+        values.push(`%${filters.code}%`);
     }
 
     // [범위 검색 - 날짜]
@@ -121,7 +121,7 @@ exports.create = async (data) => {
 
         data.amount,
         data.paymentMethod || 'CASH',
-        data.paymentStatus || 'SUCCESS',
+        data.status || 'SUCCESS',
         data.note || null,
         data.startDate,
         data.endDate,
@@ -174,7 +174,7 @@ exports.update = async (id, data, client = null) => {
 
     updates.push(`updated_at = NOW()`);
 
-    if (data.status === 'CANCELED' || data.paymentStatus === 'CANCELED') {
+    if (data.status === 'CANCELED' || data.status === 'CANCELED') {
         updates.push(`canceled_at = NOW()`);
     }
 
@@ -219,22 +219,51 @@ exports.findLatestByMemberId = async (memberId) => {
  */
 exports.findOverlappingHistory = async (memberId, startDate, endDate) => {
     const query = `
-        SELECT end_date 
+        SELECT start_date, end_date 
         FROM pf_member_payment_histories
         WHERE member_id = $1
-            AND status = 'SUCCESS'
-            AND (
-                (start_date <= $2 AND end_date >= $2) OR -- 기존 기간이 요청 시작일을 포함
-                (start_date <= $3 AND end_date >= $3) OR -- 기존 기간이 요청 종료일을 포함
-                ($2 <= start_date AND $3 >= end_date)    -- 요청 기간이 기존 기간을 포함
-            )
-        ORDER BY end_date DESC
+          AND status = 'SUCCESS'
+          AND start_date <= $3  -- 요청 종료일보다 이전에 시작하고
+          AND end_date >= $2    -- 요청 시작일보다 이후에 끝나는 (즉, 겹치는)
         LIMIT 1
     `;
     
     const { rows } = await pool.query(query, [memberId, startDate, endDate]);
-    
-    // humps를 사용 중이시라면 camelCase 변환 후 반환
+    return rows.length > 0 ? humps.camelizeKeys(rows[0]) : null;
+};
+
+/**
+ * [동기화용] 현재 시점에서 가장 유효한 멤버십 조회
+ * - pf_members 테이블에 캐싱할 상태를 결정하기 위해 사용
+ * - 우선순위:
+ * 1. ACTIVE: 현재 날짜가 기간 내에 포함됨
+ * 2. UPCOMING: 미래에 시작함 (가장 가까운 미래)
+ * 3. EXPIRED: 과거에 끝남 (가장 최근 과거)
+ */
+exports.findEffectiveHistory = async (memberId) => {
+    const query = `
+        SELECT start_date, end_date, amount, payment_method, paid_at
+        FROM pf_member_payment_histories
+        WHERE member_id = $1 AND status = 'SUCCESS'
+        ORDER BY 
+            -- 1. 상태 우선순위 정렬
+            CASE 
+                WHEN CURRENT_DATE BETWEEN start_date AND end_date THEN 0 -- Active
+                WHEN start_date > CURRENT_DATE THEN 1                -- Upcoming
+                ELSE 2                                               -- Expired
+            END ASC,
+            
+            -- 2. Upcoming(미래)일 경우: 시작일이 빠른 순서(ASC)가 우선
+            CASE 
+                WHEN start_date > CURRENT_DATE THEN start_date 
+                ELSE NULL 
+            END ASC,
+
+            -- 3. Active나 Expired일 경우: 종료일이 늦은 순서(DESC)가 우선
+            end_date DESC
+        LIMIT 1
+    `;
+    const { rows } = await pool.query(query, [memberId]);
     return rows.length > 0 ? humps.camelizeKeys(rows[0]) : null;
 };
 

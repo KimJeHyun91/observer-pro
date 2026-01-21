@@ -92,9 +92,9 @@ exports.createMemberPaymentHistory = [
         .notEmpty().withMessage("memberId는 필수입니다.")
         .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
 
-    // body('membershipPolicyId')
-    //     .notEmpty().withMessage("membershipPolicyId는 필수입니다.")
-    //     .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
+    body('membershipPolicyId')
+        .notEmpty().withMessage("membershipPolicyId는 필수입니다.")
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
 
     body('amount')
         .notEmpty().withMessage("amount는 필수입니다.")

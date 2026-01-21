@@ -1,18 +1,17 @@
-// const express = require('express');
-// const router = express.Router();
-// const policyController = require('../../controllers/policy.controller');
-// const policyValidator = require('../../validators/policy.validator');
-// const validate = require('../../middlewares/validator');
-// const errorHandler = require('../../middlewares/error-handler');
+const express = require('express');
+const router = express.Router();
+const policyController = require('../../controllers/policy.controller');
+const policyValidator = require('../../validators/policy.validator');
+const validate = require('../../middlewares/validator');
 
-// /**
-//  * @route   GET /api/v1/policies
-//  * @desc    정책(Policy) 목록 조회
-//  * - 모든 컬럼에 대한 검색 지원
-//  * - 정렬 및 페이지네이션 지원
-//  * @access  Public (또는 Protected)
-//  */
-// router.get('/', policyValidator.getPolicies, validate, policyController.findAll);
+/**
+ * @route   GET /api/v1/policies
+ * @desc    정책(Policy) 목록 조회
+ * - 모든 컬럼에 대한 검색 지원
+ * - 정렬 및 페이지네이션 지원
+ * @access  Public (또는 Protected)
+ */
+router.get('/', policyValidator.getPolicies, validate, policyController.findAll);
 
 // /**
 //  * @route   GET /api/v1/policies/:id
@@ -52,4 +51,4 @@
 
 // router.use(errorHandler);
 
-// module.exports = router;
+module.exports = router;

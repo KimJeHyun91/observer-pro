@@ -3,6 +3,13 @@ const policyRepository = require('../repositories/policy.repository');
 const memberRepository = require('../repositories/member.repository');
 const { decrypt } = require('../utils/crypto.util');
 
+// [Helper] 한국 시간(KST) 기준 YYYY-MM-DD 변환 함수
+const toKSTDateString = (date) => {
+    // 9시간(ms) 더해서 새로운 Date 객체 생성 (UTC -> KST 보정)
+    const kstDate = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+    return kstDate.toISOString().split('T')[0];
+};
+
 // =====================================================================
 // [Helper] 기간 계산 로직 (연장 vs 신규)
 // =====================================================================
@@ -33,19 +40,19 @@ const _calculateServicePeriod = (lastHistory, reqStartDate, durationDays) => {
     } else {
         // [Case B] 수동 지정
         start = new Date(reqStartDate);
-        start.setHours(0, 0, 0, 0);
-
-        if (start < today) {
-            const error = new Error('결제 시작일은 오늘 이후여야 합니다.');
+        // 유효하지 않은 날짜 문자열인 경우 방어
+        if (isNaN(start.getTime())) {
+            const error = new Error('시작일(startDate) 형식이 올바르지 않습니다.');
             error.status = 400;
             throw error;
         }
+        start.setHours(0, 0, 0, 0);
     }
 
     // 종료일 계산
     const end = new Date(start);
-    end.setDate(start.getDate() + parseInt(durationDays));
-
+    const validDuration = parseInt(durationDays, 10) || 30; // NaN 방지 및 기본값
+    end.setDate(start.getDate() + validDuration);
     return { start, end };
 };
 
@@ -55,23 +62,61 @@ const _calculateServicePeriod = (lastHistory, reqStartDate, durationDays) => {
 const formatHistory = (history) => {
     if (!history) return null;
 
-    // memberPhone이 있을 때만 복호화 시도, 없으면 null 반환
-    // (try-catch로 감싸면 더 안전하지만, decrypt 함수 내부 구현에 따라 다름)
     let decryptedPhone = null;
     if (history.memberPhone) {
         try {
             decryptedPhone = decrypt(history.memberPhone);
         } catch (e) {
-            console.error('Phone decryption failed:', e);
-            decryptedPhone = 'Error'; // 혹은 history.memberPhone 그대로 노출 방지
+            decryptedPhone = history.memberPhone; 
         }
     }
 
     return {
         ...history,
-        memberPhone: decryptedPhone, // 복호화된 번호 덮어쓰기
+        memberPhone: decryptedPhone,
     };
 };
+
+// =====================================================================
+// [Helper] 멤버십 상태 동기화 (pf_members 테이블 캐시 갱신)
+// =====================================================================
+const _syncMembershipStatus = async (memberId) => {
+    const history = await memberPaymentHistoryRepository.findEffectiveHistory(memberId);
+    
+    let updateData = {
+        membershipStatus: 'NONE',
+        membershipStartDate: null,
+        membershipEndDate: null,
+        membershipPaidFee: null,
+        membershipPaidMethod: null
+    };
+
+    if (history) {
+        const start = new Date(history.startDate);
+        const end = new Date(history.endDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (today >= start && today <= end) {
+            updateData.membershipStatus = 'ACTIVE';
+        } else if (today < start) {
+            updateData.membershipStatus = 'UPCOMING';
+        } else {
+            updateData.membershipStatus = 'EXPIRED';
+        }
+
+        updateData.membershipStartDate = start;
+        updateData.membershipEndDate = end;
+        updateData.membershipPaidFee = history.amount;
+        updateData.membershipPaidMethod = history.paymentMethod;
+    }
+
+    await memberRepository.updateMembershipCache(memberId, updateData);
+};
+
+// =====================================================================
+// [Service Methods]
+// =====================================================================
 
 /**
  * 목록 조회 (Find All)
@@ -88,7 +133,7 @@ exports.findAll = async (params) => {
     if (params.membershipPolicyId)  filters.policyId = params.membershipPolicyId;           // 회원 정책 ID 검색
     if (params.amount)              filters.amount = params.amount;                         // 금액 검색
     if (params.paymentMethod)       filters.paymentMethod = params.paymentMethod;           // 결제 방식 검색
-    if (params.paymentStatus)       filters.paymentStatus = params.paymentStatus;           // 결제 상태 검색
+    if (params.status)              filters.status = params.status;                         // 결제 상태 검색
     if (params.paidAtStart)         filters.paidAtStart = params.paidAtStart;               // 결제일 시작 검색
     if (params.paidAtEnd)           filters.paidAtEnd = params.paidAtEnd;                   // 결제일 종료 검색   
     if (params.code)                filters.code = params.code;                             // 코드 검색   
@@ -144,9 +189,9 @@ exports.create = async (data) => {
         throw error;
     }
 
-    // 2. 정책 검증 (PolicyRepo가 있다고 가정)
+    // 2. 정책 검증
+    // [임시 하드코딩] 실제 정책 DB 연동 시에는 policyRepository.findById 사용
     const policy = await policyRepository.findById(data.membershipPolicyId);
-
     if (!policy || policy.type !== 'MEMBERSHIP') {
         const error = new Error('유효하지 않은 멤버십 정책입니다.');
         error.status = 400;
@@ -163,54 +208,53 @@ exports.create = async (data) => {
         throw error;
     }
 
-    // 4. 날짜 계산 (Helper 사용)
+    // 4. 날짜 계산 (start, end를 여기서 먼저 구해야 함!)
     const lastHistory = await memberPaymentHistoryRepository.findLatestByMemberId(member.id);
     const { start, end } = _calculateServicePeriod(lastHistory, data.startDate, durationDays);
 
-    // 5. 중복 체크 (로직 변경)
-    // 단순히 true/false가 아니라, 겹치는 기록 객체를 가져옵니다.
-    const conflictingHistory = await memberPaymentHistoryRepository.findOverlappingHistory(member.id, start, end);
+    // 5. [중요] 정확한 기간 충돌 체크 (계산된 start, end 사용)
+    const conflictingHistory = await memberPaymentHistoryRepository.findOverlappingHistory(
+        member.id,
+        start,
+        end
+    );
     
     if (conflictingHistory) {
-        // 겹치는 기록의 종료일 가져오기
-        const conflictEndDate = new Date(conflictingHistory.endDate);
+        const conflictStart = toKSTDateString(new Date(conflictingHistory.startDate));
+        const conflictEnd = toKSTDateString(new Date(conflictingHistory.endDate));
         
-        // 다음 가능한 시작일 계산 (종료일 + 1일)
-        const nextAvailableDate = new Date(conflictEndDate);
-        nextAvailableDate.setDate(conflictEndDate.getDate() + 1);
-
-        // 날짜 포맷팅 (YYYY-MM-DD)
-        const formattedDate = nextAvailableDate.toISOString().split('T')[0];
-
-        const error = new Error(`해당 날짜에는 이미 결제 기록이 있습니다. 기존 이용권이 만료된 다음 날인 ${formattedDate}부터 등록 가능합니다.`);
+        const error = new Error(
+            `요청하신 기간은 기존 이용권(${conflictStart} ~ ${conflictEnd})과 겹칩니다. 날짜를 확인해주세요.`
+        );
         error.status = 409; 
         throw error;
     }
 
-    // 6. 저장 데이터 구성 (스냅샷 포함)
+    // 6. 결제 생성
     const paymentData = {
         memberId: data.memberId,
         policyId: data.membershipPolicyId,
         amount: parseInt(policyFee, 10),
         paymentMethod: data.paymentMethod,
-        paymentStatus: 'SUCCESS', // 자동 설정
+        status: 'SUCCESS',
         note: data.note,
-        startDate: start,
-        endDate: end,
+        startDate: start, // 계산된 시작일
+        endDate: end,     // 계산된 종료일
         paidAt: new Date(),
 
-        // [Snapshot] 회원 정보
+        // Snapshot
         memberName: member.name,
         memberCode: member.code,
         memberPhone: member.phoneEncrypted,
         carNumber: member.carNumber,
-        
-        // [Snapshot] 정책 정보
         policyName: policy.name,
         policyCode: policy.code
     };
 
     const newMemberPaymentHistory = await memberPaymentHistoryRepository.create(paymentData);
+
+    // 7. 상태 동기화
+    await _syncMembershipStatus(data.memberId);
 
     return formatHistory(newMemberPaymentHistory);
 };
@@ -236,8 +280,15 @@ exports.update = async (id, data) => {
         throw error;
     }
 
-    // 3. 상태 업데이트 (취소 처리)
+    // 3. 상태 업데이트
+    // whitelist 적용은 repository 레벨에서 처리됨
     const updatedMemberPaymentHistory = await memberPaymentHistoryRepository.update(id, data);
+
+    // 4. [핵심] 회원 테이블 멤버십 상태 재동기화
+    // 취소로 인해 가장 유효한 멤버십이 변경되었을 수 있음 (예: 미래 예약 취소 -> 현재가 유효)
+    if (updatedMemberPaymentHistory) {
+        await _syncMembershipStatus(updatedMemberPaymentHistory.memberId);
+    }
 
     return formatHistory(updatedMemberPaymentHistory);
 };

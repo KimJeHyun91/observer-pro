@@ -1,20 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const statisticsController = require('../../controllers/statistics.controller');
-const validator = require('../../validators/statistics.validator');
+const statisticsValidator = require('../../validators/statistics.validator');
 const validate = require('../../middlewares/validator');
+const { restrictTo } = require('../../middlewares/auth.middleware');
 
-// /**
-//  * @route   GET /api/v1/sites/:siteId/statistics
-//  * @desc    특정 사이트의 통계 요약 조회
-//  * @query   scope (today | week | month) - 기본값: today
-//  * @access  Admin
-//  */
-// router.get(
-//     '/sites/:siteId/statistics',
-//     validator.validateGetStatistics,
-//     validate,
-//     statisticsController.getStatistics
-// );
+/**
+ * @route   GET /api/parking-fee/v1/sites/:id/statistics/dashboard
+ * @desc    주차 세션(Parking Session) 대시보드(Dashboard) 조회
+ * @access  Admin
+ */
+router.get('/dashboard', restrictTo(['admin']), statisticsValidator.validateGetDashboard, validate, statisticsController.getDashboard);
 
 module.exports = router;

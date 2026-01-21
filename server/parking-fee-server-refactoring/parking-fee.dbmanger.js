@@ -268,9 +268,8 @@ async function initParkingFeeDbSchema() {
                 -- 4. 회원/정기권 정책 ("type": "MEMBERSHIP")
                 --    "membership_rule" 객체에 정기권 설정을 정의합니다.
                 --    -------------------------------------------------------------------------------
-                --    period_days: integer     -- 적용 기간(일) (30, 180, 365)
-                --    price: integer           -- 판매 금액
-                --    allow_extension: boolean -- 연장 가능 여부
+                --    membershipValidityDays: integer     -- 적용 기간(일) (30, 180, 365)
+                --    membershipFee: integer           -- 판매 금액
                 --
                 --
                 -- 5. 블랙리스트 정책 ("type": "BLACKLIST")
@@ -320,6 +319,12 @@ async function initParkingFeeDbSchema() {
                 group_name TEXT,    -- 그룹
                 note TEXT,          -- 메모
 
+                membership_start_date DATE,
+                membership_end_date DATE,
+                membership_status TEXT DEFAULT 'NONE', -- ACTIVE, UPCOMING, EXPIRED, NONE
+                membership_paid_fee INTEGER,           -- 결제 금액
+                membership_paid_method TEXT,           -- 결제 수단
+
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
@@ -329,6 +334,7 @@ async function initParkingFeeDbSchema() {
             CREATE INDEX IF NOT EXISTS members_site_id_idx ON pf_members (site_id);
             CREATE INDEX IF NOT EXISTS members_car_number_idx ON pf_members (car_number);
             CREATE INDEX IF NOT EXISTS members_phone_hash_idx ON pf_members (phone_hash);
+            CREATE INDEX IF NOT EXISTS idx_members_car_active ON pf_members (car_number, membership_end_date);
             DROP TRIGGER IF EXISTS trigger_update_timestamp ON pf_members;
             CREATE TRIGGER trigger_update_timestamp BEFORE UPDATE ON pf_members FOR EACH ROW EXECUTE FUNCTION update_timestamp();
         `);
@@ -428,6 +434,7 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
+                CONSTRAINT uq_pf_holidays_site_name UNIQUE NULLS NOT DISTINCT (site_id, name),
                 CONSTRAINT uq_pf_holidays_site_date UNIQUE NULLS NOT DISTINCT (site_id, date)
             );
             CREATE INDEX IF NOT EXISTS holidays_site_id_idx ON pf_holidays (date, site_id);
@@ -508,7 +515,6 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
             );
-            
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_site_id ON pf_parking_sessions (site_id);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_car_number ON pf_parking_sessions (car_number);
             CREATE INDEX IF NOT EXISTS idx_parking_sessions_status ON pf_parking_sessions (status);

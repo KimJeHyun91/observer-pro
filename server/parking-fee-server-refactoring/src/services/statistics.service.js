@@ -1,114 +1,116 @@
-// const StatisticsRepository = require('../repositories/statistics.repository');
-// const SiteRepository = require('../repositories/site.repository');
-// const PolicyRepository = require('../repositories/policy.repository');
-// const FeeService = require('./fee.service');
+const dayjs = require('dayjs');
+const statisticsRepository = require('../repositories/statistics.repository');
 
-// class StatisticsService {
-//     constructor() {
-//         // 통계용 리포지토리를 별도로 사용 (추천)
-//         this.statisticsRepository = new StatisticsRepository();
-        
-//         // 보조 리포지토리들
-//         this.siteRepository = new SiteRepository();
-//         this.policyRepository = new PolicyRepository();
-        
-//         // 계산 로직
-//         this.feeService = FeeService;
-//     }
+/**
+ * 대시보드용 전체 데이터 조합
+ */
+exports.getDashboardData = async (params) => {
+    const { siteId, year, month } = params;
 
-//     /**
-//      * 금일(Today) 주차장 현황 요약
-//      * @param {string} siteId 
-//      */
-//     async getTodaySummary(siteId) {
-//         // 1. 사이트 정보 조회 (총 주차면수 등)
-//         const site = await this.siteRepository.findById(siteId);
-//         if (!site) throw new Error('존재하지 않는 사이트 ID입니다.');
+    // 1. 날짜 범위 계산
+    const { current, prev, sixMonths } = calculateRanges(year, month);
 
-//         // 2. 오늘 날짜 범위 설정 (00:00:00 ~ 현재)
-//         const now = new Date();
-//         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    // 2. 병렬 DB 조회
+    // - dailyStats: 일별 매출/입출차 (상단 차트들용)
+    // - prevRevenue: 전월 매출 (비교용)
+    // - vehicleRatio: 차종 비율 (좌측 하단)
+    // - hourlyStats: 시간대별 흐름 (중앙 하단) *NEW*
+    // - monthlyTrends: 6개월 추이 (우측 하단)
+    const [dailyStats, prevDailyRevenue, vehicleRatio, hourlyStats, monthlyTrends] = await Promise.all([
+        statisticsRepository.findDailyStats(siteId, current.start, current.end),
+        statisticsRepository.findDailyRevenueOnly(siteId, prev.start, prev.end),
+        statisticsRepository.findVehicleRatios(siteId, current.start, current.end),
+        statisticsRepository.findHourlyStats(siteId, current.start, current.end), // 새로 추가됨
+        statisticsRepository.findMonthlyTrends(siteId, sixMonths.start, current.end)
+    ]);
 
-//         // 3. [병렬 실행] DB에서 필요한 원시 데이터 조회
-//         const [trafficData, revenueData, activeSessions, feeConfig] = await Promise.all([
-//             // A. 입/출차 수 (COUNT)
-//             this.statisticsRepository.getTrafficCounts(siteId, startOfDay),
-            
-//             // B. 정산 완료 매출 (SUM)
-//             this.statisticsRepository.getSettledRevenue(siteId, startOfDay),
-            
-//             // C. 현재 주차 중인 차량 목록 (예상 매출 계산용)
-//             this.statisticsRepository.getActiveSessions(siteId),
+    // 3. UI 위젯별 데이터 가공 (Formatting)
+    return formatForWidgets({
+        year, month,
+        dailyStats,
+        prevDailyRevenue,
+        vehicleRatio,
+        hourlyStats,
+        monthlyTrends
+    });
+};
 
-//             // D. 해당 사이트 요금 정책 (계산용)
-//             this._getFeeConfig(siteId)
-//         ]);
+// =========================================================================
+//  Helper Functions
+// =========================================================================
 
-//         // 4. [로직] 회전율 계산 (입차대수 / 총주차면수)
-//         const totalSpaces = site.totalSpaces || 1; // 0 나누기 방지
-//         const rotationRate = parseFloat((trafficData.entryCount / totalSpaces).toFixed(2));
+const calculateRanges = (year, month) => {
+    const yearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const startOfMonth = dayjs(`${yearMonth}-01`).startOf('month');
+    const endOfMonth = startOfMonth.endOf('month');
 
-//         // 5. [로직] 현재 주차 중인 차량들의 '예상 미납 요금' 계산
-//         let estimatedUnpaidAmount = 0;
-        
-//         if (feeConfig) {
-//             for (const session of activeSessions) {
-//                 // 현재 시간까지의 주차 시간(분)
-//                 const entryTime = new Date(session.entryTime);
-//                 const duration = Math.floor((now - entryTime) / 1000 / 60);
+    return {
+        current: { start: startOfMonth.toISOString(), end: endOfMonth.toISOString() },
+        prev: {
+            start: startOfMonth.subtract(1, 'month').startOf('month').toISOString(),
+            end: startOfMonth.subtract(1, 'month').endOf('month').toISOString()
+        },
+        sixMonths: { start: startOfMonth.subtract(5, 'month').startOf('month').toISOString() }
+    };
+};
 
-//                 // 현재 시점 기준 요금 계산
-//                 const currentFee = this.feeService.calculateFee(duration, feeConfig);
-                
-//                 // 예상 미수금 = (현재 총 요금) - (이미 낸 돈) - (이미 받은 할인)
-//                 const alreadyPaid = session.paidFee || 0;
-//                 const alreadyDiscount = session.discountFee || 0;
-                
-//                 // *주의: 이미 할인을 많이 받아서 요금이 마이너스인 경우는 0으로 처리
-//                 const unpaid = Math.max(0, currentFee - alreadyPaid - alreadyDiscount);
-                
-//                 estimatedUnpaidAmount += unpaid;
-//             }
-//         }
+const formatForWidgets = ({ dailyStats, prevDailyRevenue, vehicleRatio, hourlyStats, monthlyTrends }) => {
+    // 공통 라벨 (일자)
+    const dayLabels = dailyStats.map(row => `${parseInt(row.dayLabel)}일`);
 
-//         // 6. 결과 반환
-//         return {
-//             generatedAt: now,
-            
-//             todayTraffic: {
-//                 entryCount: parseInt(trafficData.entryCount),
-//                 exitCount: parseInt(trafficData.exitCount),
-//                 rotationRate: rotationRate
-//             },
+    // [Widget 1] 좌측 상단: 일일 종합 수익 (Line Chart)
+    const dailyRevenueData = dailyStats.map(r => parseInt(r.dailyRevenue));
+    const totalCurrentRevenue = dailyRevenueData.reduce((a, b) => a + b, 0);
 
-//             todayRevenue: {
-//                 totalSettledAmount: parseInt(revenueData.totalPaid),       // 실제 번 돈
-//                 totalDiscountAmount: parseInt(revenueData.totalDiscount),  // 할인해 준 돈
-                
-//                 // [추가] 강제 출차로 인한 확정 손실금 (미수금)
-//                 totalLossAmount: parseInt(revenueData.totalLoss),
-                
-//                 // 현재 주차 중인 차들의 예상 요금 (잠재 수익)
-//                 estimatedUnpaidAmount: estimatedUnpaidAmount              
-//             }
-//         };
-//     }
-
-//     // ===========================================================================
-//     // [Private Helper]
-//     // ===========================================================================
+    // [Widget 2] 중앙 상단: 종합 수익 보고 (Comparison)
+    const totalPrevRevenue = prevDailyRevenue.reduce((sum, r) => sum + parseInt(r.dailyRevenue), 0);
     
-//     /**
-//      * 사이트의 FEE 정책 설정 가져오기
-//      */
-//     async _getFeeConfig(siteId) {
-//         const { rows } = await this.policyRepository.findAll(
-//             { siteId, type: 'FEE' },
-//             { sortBy: 'created_at', sortOrder: 'DESC' },
-//             1, 0
-//         );
-//         return rows.length > 0 ? rows[0].config : null;
-//     }
-// }
+    // [Widget 3] 우측 상단: 유동 차량 (Bar Chart - Entry vs Exit)
+    const trafficVolume = {
+        labels: dayLabels,
+        entry: dailyStats.map(r => parseInt(r.entryCount)),
+        exit: dailyStats.map(r => parseInt(r.exitCount))
+    };
 
-// module.exports = StatisticsService;
+    // [Widget 4] 좌측 하단: 차량 종류 비율 (Donut Chart)
+    // 한글 매핑
+    const typeMap = { NORMAL: '일반차량', COMPACT: '경차', ELECTRIC: '전기차', MEMBER: '정기권', UNKNOWN: '기타' };
+    const vehicleRatioFormatted = vehicleRatio.map(r => ({
+        name: typeMap[r.name] || r.name,
+        value: parseInt(r.value)
+    }));
+
+    // [Widget 5] 중앙 하단: 시간대별 입출차 흐름 (Spline Chart - 0시~23시)
+    // DB에서 비어있는 시간대는 0으로 채워져서 옴
+    const hourlyFlow = {
+        labels: hourlyStats.map(r => `${parseInt(r.hour)}시`),
+        entry: hourlyStats.map(r => parseInt(r.entryCount)),
+        exit: hourlyStats.map(r => parseInt(r.exitCount))
+    };
+
+    // [Widget 6] 우측 하단: 당월 이용률/추이 (Bar Chart - 6개월)
+    const monthlyUsage = {
+        labels: monthlyTrends.map(r => r.monthLabel), // "24-05", "24-06"
+        series: [
+            { name: "종합 차량", data: monthlyTrends.map(r => parseInt(r.totalCount)) },
+            // 필요하다면 일반/기타 등으로 더 나눌 수 있음 (쿼리 수정 필요)
+        ]
+    };
+
+    return {
+        dailyRevenueChart: {
+            total: totalCurrentRevenue,
+            labels: dayLabels,
+            data: dailyRevenueData
+        },
+        revenueReport: {
+            currentMonthTotal: totalCurrentRevenue,
+            prevMonthTotal: totalPrevRevenue,
+            diff: totalCurrentRevenue - totalPrevRevenue
+        },
+        trafficVolumeChart: trafficVolume,
+        vehicleRatioChart: vehicleRatioFormatted,
+        hourlyFlowChart: hourlyFlow,
+        monthlyUsageChart: monthlyUsage
+    };
+};
