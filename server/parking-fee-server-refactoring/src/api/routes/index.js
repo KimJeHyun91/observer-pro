@@ -47,8 +47,7 @@ v1Router.use('/blacklists', blacklistRoutes);
 v1Router.use('/holidays', holidayRoutes);
 v1Router.use('/policies', policyRoutes);
 v1Router.use('/parking-sessions', parkingSessionRoutes);
-
-v1Router.use('/sites/:id/statistics', statisticsRoutes);
+v1Router.use('/sites/:siteId/statistics', statisticsRoutes);
 
 // v1 라우터를 '/v1' 경로에 마운트
 router.use('/v1', v1Router);

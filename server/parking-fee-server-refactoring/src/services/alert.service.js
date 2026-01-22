@@ -1,153 +1,116 @@
-const logger = require('../../../logger');
+const alertRepository = require('../repositories/alert.repository');
+const siteRepository = require('../repositories/site.repository');
 
-class AlertService {
-    constructor() {
-        // 알림 타입 정의 (Critical Alerts)
-        this.Types = {
-            BLACKLIST_DETECTED: 'BLACKLIST_DETECTED',   // 블랙리스트 차량 진입
-            LPR_ERROR: 'LPR_ERROR',                     // 번호 미인식
-            DEVICE_OFFLINE: 'DEVICE_OFFLINE',           // 장비 연결 끊김
-            SYSTEM_ERROR: 'SYSTEM_ERROR',               // 시스템 내부 오류
-            GHOST_EXIT: 'GHOST_EXIT'                    // 미입차 차량 출차 시도
-        }
-    }
+/**
+ * 목록 조회 (Find All)
+ * - 페이징, 정렬, 검색 필터 처리
+ */
+exports.findAll = async (params) => {
+    // 1. 페이징 처리
+    const page = parseInt(params.page) || 1;
+    const limit = parseInt(params.limit) || 100;
+    const offset = (page - 1) * limit;
+
+    // 2. 검색 필터 
+    const filters = {};
+
+    if (params.siteId) filters.siteId = params.siteId;                                  // 사이트 ID 검색
+    if (params.type)   filters.type = params.type;                                      // 종류 검색
+    if (params.severity)   filters.severity = params.severity;                          // 심각도 검색
+    if (params.status)   filters.status = params.status;                                // 상태 검색
+    if (params.parkingSessionId)   filters.parkingSessionId = params.parkingSessionId;  // 상태 검색
+    if (params.carNumber)   filters.carNumber = params.carNumber;                       // 상태 검색
+    if (params.startTime)   filters.startTime = params.startTime;                       // 시작 시간 검색
+    if (params.endTime)   filters.endTime = params.endTime;                             // 종료 시간 검색
+
+    // 3. 정렬 옵션 (Allowlist)
+    const ALLOWED_SORTS = ['createdAt', 'updatedAt'];
+    let sortBy = params.sortBy || 'createdAt';
     
-    /**
-     * [Critical] 중요 알림 전송 (에러, 블랙리스트 등)
-     * - 대상 이벤트: pf_alert-update
-     * @param {Object} data 
-     */
-    async sendAlert(data) {
-        try {
-            const { type, message, siteId, data } = data;
-            
-            logger.warn(`[AlertService] Critical Alert: [${type}] ${message}`);
+    // 허용되지 않은 정렬 키 방어
+    if (!ALLOWED_SORTS.includes(sortBy)) {
+        sortBy = 'createdAt';
+    }
 
-            // 웹소켓으로 알림 전송 (이벤트명: pf_alert-update)
-            if (global.websocket) {
-                global.websocket.emit('pf_alert-update', {
-                    type,
-                    message,
-                    siteId,
-                    timestamp: new Date(),
-                    details: data
-                });
-            }
+    const sortOrder = (params.sortOrder && params.sortOrder.toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
+    const sortOptions = { sortBy, sortOrder };
 
-            // TODO: 필요 시 Slack, SMS, Push Notification 연동 로직 추가
-        } catch (error) {
-            logger.error(`[AlertService] 알림 전송 실패: ${error.message}`);
+    // 4. Repository 호출
+    const { rows, count } = await alertRepository.findAll(filters, sortOptions, limit, offset);
+
+    return {
+        alerts: rows,
+        meta: {
+            totalItems: parseInt(count),
+            totalPages: Math.ceil(count / limit),
+            currentPage: page,
+            itemsPerPage: limit
+        }
+    };
+};
+
+/**
+ * 상세 조회 (Find Detail)
+ */
+exports.findDetail = async (id) => {
+    const alert = await alertRepository.findById(id);
+    
+    if (!alert) {
+        const err = new Error('해당 알림을 찾을 수 없습니다.');
+        err.status = 404;
+        throw err;
+    }
+    return alert;
+};
+
+/**
+ * 생성 (Create)
+ */
+exports.create = async (data) => {
+    // 1. 사이트 정보 조회 (스냅샷 저장을 위해)
+    const site = await siteRepository.findById(data.siteId);
+    if (!site) {
+        throw new Error(`존재하지 않는 사이트 ID입니다. (${data.siteId})`);
+    }
+
+    // 2. 스냅샷 데이터 병합
+    const createPayload = {
+        ...data,
+        siteName: site.name,
+        siteCode: site.code,
+    };
+
+    return await alertRepository.create(createPayload);
+};
+
+/**
+ * 수정 (Update)
+ */
+exports.update = async (id, data, operator) => {
+    const alert = await alertRepository.findById(id);
+    if (!alert) {
+        const error = new Error('해당 알림을 찾을 수 없습니다.');
+        error.status = 404;
+        throw error;
+    }
+
+    const updatePayload = {
+        ...data,
+        operatorId: operator.user_id,
+        operatorName: operator.user_name
+    };
+
+    // 상태 변경에 따른 로직 처리
+    if (data.status) {
+        // 1. 종결 처리 (해결됨 or 오작동) -> 해결 시간 기록
+        if (['RESOLVED', 'FALSE_ALARM'].includes(data.status)) {
+            updatePayload.resolvedAt = new Date();
+        } 
+        // 2. 재오픈 (다시 확인 중) -> 해결 시간 초기화
+        else if (['CHECKED'].includes(data.status)) {
+            updatePayload.resolvedAt = null; 
         }
     }
 
-    /**
-     * [Operation] LPR 입출차 및 상태 변경 알림 전송
-     * - 대상 이벤트: pf_lpr-update
-     * @param {Object} data
-     */
-    sendLprUpdate(data) {
-        if (!global.websocket) return;
-
-        try {
-            // 1. 데이터 구조 분해 할당 (기본값 설정)
-            const {
-                parkingSessionId,
-                siteId,
-                carNumber,
-                direction,
-                location = 'UNKNOWN',
-                deviceIp = null,
-                devicePort = null,
-                imageUrl,
-                eventTime = new Date(),
-                totalFee = 0,
-                discountFee = 0,
-                preSettledFee = 0,
-                remainingFee = 0,
-                discountPolicyIds = [],
-                status,
-                isBlacklist = false,
-                vehicleType = 'NORMAL',
-                message = ''
-            } = data;
-
-            // 2. 차종 한글 명칭 변환
-            let vehicleTypeName = "일반";
-            if (vehicleType === 'MEMBER') vehicleTypeName = "정기권";
-            else if (vehicleType === 'COMPACT') vehicleTypeName = "경차";
-            else if (vehicleType === 'ELECTRIC') vehicleTypeName = "전기차";
-
-            // 3. 페이로드 구성
-            const payload = {
-                parkingSessionId,
-                siteId,
-                carNumber,
-                direction,
-                location,
-                deviceIp,
-                devicePort,
-                imageUrl,
-                eventTime,
-                totalFee,
-                discountFee,
-                preSettledFee,
-                remainingFee,
-                discountPolicyIds,
-                status,
-                isBlacklist,
-                vehicleType: vehicleTypeName,
-                message
-            };
-
-            global.websocket.emit("pf_lpr-update", { parkingSession: { 'data': payload } });
-            logger.info(`[AlertService] LPR Update sent: ${carNumber} (${direction})`);
-
-        } catch (error) {
-            logger.error(`[AlertService] LPR 업데이트 전송 실패: ${error.message}`);
-        }
-    }
-
-    /**
-     * [Operation] 차단기 상태 변경 알림 전송
-     * - 대상 이벤트: pf_gate_state-update
-     * @param {Object} data
-     */
-    sendGateStatus(data) {
-        if (!global.websocket) return;
-
-        try {
-            const {
-                siteId,
-                zoneId,
-                laneId,
-                deviceId,
-                direction = 'UNKNOWN',
-                deviceIp,
-                devicePort,
-                location,
-                status,
-                eventTime
-            } = data;
-
-            const payload = {
-                siteId,
-                zoneId,
-                laneId,
-                deviceId,
-                direction,
-                deviceIp,
-                devicePort,
-                location,
-                status,
-                eventTime
-            };
-
-            global.websocket.emit("pf_gate_state-update", { gateState: { 'data': payload } });
-
-        } catch (error) {
-            logger.error(`[AlertService] Gate 상태 전송 실패: ${error.message}`);
-        }
-    }
-}
-
-module.exports = AlertService;
+    return await alertRepository.update(id, updatePayload);
+};

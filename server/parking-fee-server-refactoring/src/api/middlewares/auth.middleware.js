@@ -19,8 +19,8 @@ exports.restrictTo = (allowedRoles) => {
             err.status = 401;
             return next(err);
         }
-
-        // console.log(`User Role: ${req.session.user_role}`);
+        
+        // console.log('session: ', req.session);
 
         // 2. 권한 확인
         if (!allowedRoles.includes(req.session.user_role)) {

@@ -328,8 +328,7 @@ async function initParkingFeeDbSchema() {
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ,
 
-                CONSTRAINT uq_pf_members_site_car_number UNIQUE (site_id, car_number),
-                CONSTRAINT uq_pf_members_site_phone_hash UNIQUE (site_id, phone_hash)
+                CONSTRAINT uq_pf_members_site_car_number UNIQUE (site_id, car_number)
             );
             CREATE INDEX IF NOT EXISTS members_site_id_idx ON pf_members (site_id);
             CREATE INDEX IF NOT EXISTS members_car_number_idx ON pf_members (car_number);
@@ -482,9 +481,10 @@ async function initParkingFeeDbSchema() {
                 vehicle_type TEXT DEFAULT 'NORMAL', -- 차량 유형 (NORMAL, MEMBER, COMPACT, ELECTRIC)
                 duration INTEGER DEFAULT 0,         -- 주차 시간 (분)
         
-                total_fee INTEGER DEFAULT 0,    -- 전체 요금(원)    
-                discount_fee INTEGER DEFAULT 0, -- 할인 요금(원)
-                paid_fee INTEGER DEFAULT 0,     -- 지불 요금(원)
+                total_fee INTEGER DEFAULT 0,        -- 전체 요금(원)    
+                discount_fee INTEGER DEFAULT 0,     -- 할인 요금(원)
+                paid_fee INTEGER DEFAULT 0,         -- 지불 요금(원)
+                remaining_fee INTEGER DEFAULT 0,    -- 미지불 요금(원)
         
                 -- 적용된 할인 상세 (JSONB)
                 -- policy_id: uuid  - 할인 정책 ID
@@ -498,16 +498,16 @@ async function initParkingFeeDbSchema() {
                 applied_discounts JSONB,
         
                 -- 상태
-                -- PENDING(입차중)
+                -- PENDING_ENTRY(입차 진행중)
+                -- PENDING(주차중)
                 -- PRE_SETTLED(사전정산됨)
                 -- PAYMENT_PENDING(정산대기)
-                -- COMPLETED(출차완료)
                 -- UNRECOGNIZED(번호미인식)
-                -- CANCELED(취소/오인식무효화)
-                -- RUNAWAY(도주)
-                -- FORCE_COMPLETED(강제 출차완료: 관리자 수동 출차완료 처리 또는 출차 기록이 없고 입차 기록만 있는 차량이 재입차 했을 경우 처리를 위해) 
-                -- PENDING_ENTRY(입차 진행중)
                 -- PENDING_EXIT(출차 진행중)
+                -- COMPLETED(출차완료)
+                -- FORCE_COMPLETED(강제 출차완료: 관리자 수동 출차완료 처리 또는 출차 기록이 없고 입차 기록만 있는 차량이 재입차 했을 경우 처리를 위해) 
+                -- RUNAWAY(도주)
+                -- CANCELED(취소/오인식무효화)              
                 status TEXT DEFAULT 'PENDING',
 
                 note TEXT, -- 메모
@@ -530,20 +530,51 @@ async function initParkingFeeDbSchema() {
         // 12. 알림 테이블 (파티션)
         // ================================================================= 
         await client.query(`
-            CREATE TABLE IF NOT EXISTS pf_alerts (
+            CREATE TABLE pf_alerts (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v7(),
-                site_id UUID REFERENCES pf_sites(id) ON DELETE CASCADE,
                 
-                type TEXT NOT NULL, -- BLACKLIST, LPR_ERROR 등
-                message TEXT NOT NULL,
+                site_id UUID NOT NULL,
+                site_name TEXT,
+                site_code TEXT, 
                 
-                metadata JSONB, -- 차량번호, 이미지 주소 등 가변 데이터
-                is_read BOOLEAN DEFAULT FALSE, -- 관리자 확인 여부
+                -- DEVICE_ERROR(장비 장애)      - LPR, 차단기, 키오스크 등의 하드웨어 고장 또는 통신 오류
+                -- WATCHLIST(관심 차량)         - 블랙리스트(진입금지), VIP, 수배 차량 등 등록된 차량 감지
+                -- ILLEGAL_PARKING(부정 주차)   - 장기 방치, 장애인 구역 위반, 꼬리물기 등 이상 행위
+                -- SYSTEM(시스템 오류)          - 서버 부하, DB 연결 실패, 결제 모듈 오류 등 소프트웨어 문제
+                type TEXT NOT NULL,         
+
+                -- INFO(정보)       - 단순 기록용 알림 (예: VIP 입차, 시스템 점검 완료)
+                -- WARNING(경고)    - 당장 운영은 가능하나 조치가 필요한 상태 (예: 영수증 용지 부족, 인식률 저하)
+                -- CRITICAL(긴급)   - 운영 중단 위험이 있어 즉시 대응 필요 (예: 차단기 미동작, 화재 감지)
+                severity TEXT NOT NULL,     
+
+                -- NEW(신규 발생)       - 시스템이 감지했으나 운영자가 아직 확인하지 않은 초기 상태
+                -- CHECKED(확인 중)     - 운영자가 알림을 인지하고 접수했거나 현장 조치 중인 상태 (중복 대응 방지)
+                -- RESOLVED(처리 완료)  - 장비 수리, 출차 조치 등으로 문제가 해결되어 종결된 상태
+                -- FALSE_ALARM(오작동)  - 센서 오감지, 직원의 작업 중 건드림 등 실제 장애가 아닌 경우
+                status TEXT DEFAULT 'NEW',  -- 'NEW', 'CHECKED', 'RESOLVED', 'FALSE_ALARM'
                 
-                created_at TIMESTAMPTZ DEFAULT NOW()
+                title TEXT NOT NULL,    -- 알림 제목 (예: "3번 게이트 차단기 장애")
+                message TEXT NOT NULL,  -- 상세 내용
+                
+                device_id UUID,           -- 장비 장애일 경우
+                parking_session_id UUID,  -- 주차 세션 관련일 경우
+                car_number TEXT,          -- 특정 차량 관련일 경우 (인덱싱 검색용)
+                
+                metadata JSONB DEFAULT '{}'::jsonb, 
+                
+                operator_id UUID,         -- 누가 처리했는지
+                operator_name TEXT,       -- 처리자 이름 스냅샷
+                resolved_at TIMESTAMPTZ,  -- 언제 처리 완료됐는지
+                note TEXT,                -- 처리 시 남긴 메모 (예: "단순 센서 오작동으로 확인되어 종결함")
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
             );
-            CREATE INDEX IF NOT EXISTS idx_pf_alerts_metadata ON pf_alerts USING GIN (metadata);
-            CREATE INDEX IF NOT EXISTS idx_pf_alerts_site_created ON pf_alerts(site_id, created_at DESC);
+            CREATE INDEX idx_pf_alerts_site_date ON pf_alerts(site_id, created_at DESC);
+            CREATE INDEX idx_pf_alerts_status ON pf_alerts(status);
+            CREATE INDEX idx_pf_alerts_type_severity ON pf_alerts(type, severity);
+            CREATE INDEX idx_pf_alerts_car_number ON pf_alerts(car_number);
         `);
 
         // =================================================================

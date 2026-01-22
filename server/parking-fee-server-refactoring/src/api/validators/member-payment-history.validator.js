@@ -127,7 +127,7 @@ exports.updateMemberPaymentHistory = [
         .toUpperCase().isIn(['CANCELED']).withMessage("status는 'CANCELED'이어야 합니다."),
     
     body('note')
-        .optional()
+        .notEmpty().withMessage('note는 필수입니다.')
         .isString().withMessage('note는 문자열이어야 합니다.')
         .trim()
 ];

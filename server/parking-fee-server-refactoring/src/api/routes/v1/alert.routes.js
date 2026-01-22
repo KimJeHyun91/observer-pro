@@ -1,24 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../../controllers/alert.controller');
-const validator = require('../../validators/alert.validator');
-const validate = require('../../middlewares/validator'); // 기존에 사용하시던 검증 미들웨어
-const errorHandler = require('../../middlewares/error-handler');
+const alertController = require('../../controllers/alert.controller');
+const alertValidator = require('../../validators/alert.validator');
+const validate = require('../../middlewares/validator');
+const { restrictTo } = require('../../middlewares/auth.middleware');
 
 /**
  * @route   GET /api/v1/alerts
- * @desc    알림 이력 목록 조회
- * @access  Admin / Manager
+ * @desc    알림(Alert) 목록 조회
  */
-router.get('/', validator.getAlerts, validate, controller.findAll);
+router.get('/', restrictTo(['admin', 'user']), alertValidator.getAlerts, validate, alertController.findAll);
 
 /**
- * @route   PATCH /api/v1/alerts/:id/read
- * @desc    특정 알림 읽음 처리
- * @access  Admin / Manager
+ * @route   GET /api/v1/alerts/:id
+ * @desc    알림(Alert) 상세 조회
  */
-router.patch('/:id/read', validator.markAsRead, validate, controller.markAsRead);
+router.get('/:id', restrictTo(['admin', 'user']), alertValidator.getAlert, validate, alertController.findDetail);
 
-router.use(errorHandler);
+/**
+ * @route   PATCH /api/v1/alerts/:id
+ * @desc    알림(Alert) 수정
+ */
+router.patch('/:id', restrictTo(['admin', 'user']), alertValidator.updateAlert, validate, alertController.update);
 
 module.exports = router;

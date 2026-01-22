@@ -27,7 +27,7 @@ exports.getHolidays = [
         .optional()
         .isString().withMessage('sortBy는 문자열이어야 합니다.')
         .trim()
-        .isIn(['name', 'code', 'siteId', 'createdAt', 'updatedAt'])
+        .isIn(['name', 'code', 'siteId', 'date', 'createdAt', 'updatedAt'])
         .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, code, siteId, createdAt, updatedAt)'),
 
     query('sortOrder')

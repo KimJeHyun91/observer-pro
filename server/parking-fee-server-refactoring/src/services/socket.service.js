@@ -38,7 +38,13 @@ exports.emitBlacklistRefresh = () => emitRefreshSignal('pf_blacklist-update', 'b
 exports.emitMemberRefresh = () => emitRefreshSignal('pf_member-update', 'member');
 
 // 회원 결제 기록(Member Payment History)
-exports.emitMemberPaymentHistoryRefresh = () => emitRefreshSignal('pf_member-update', 'member');
+exports.emitMemberPaymentHistoryRefresh = () => emitRefreshSignal('pf_member_payment_history-update', 'member payment history');
 
 // 휴일(Holiday)
 exports.emitHolidayRefresh = () => emitRefreshSignal('pf_holiday-update', 'holiday');
+
+// 주차 세션(Parking Session)
+exports.emitParkingSessionRefresh = () => emitRefreshSignal('pf_parking_session-update', 'parking session');
+
+// 알림(Alert)
+exports.emitAlertRefresh = () => emitRefreshSignal('pf_alert-update', 'alert');

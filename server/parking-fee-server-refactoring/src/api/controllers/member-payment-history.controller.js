@@ -32,7 +32,7 @@ exports.findDetail = async (req, res, next) => {
 exports.create = async (req, res, next) => {
     try {
         await memberPaymentHistoryService.create(req.body);
-        socketService.emitMemberPaymentHistoryRefresh();
+        socketService.emitMemberRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });            
     } catch (error) {
         next(error);
@@ -46,7 +46,7 @@ exports.update = async (req, res, next) => {
     try {
         const { id } = req.params;
         await memberPaymentHistoryService.update(id, req.body);
-        socketService.emitMemberPaymentHistoryRefresh();
+        socketService.emitMemberRefresh();
         res.status(200).json({ status: 'OK', message: 'success' });
     } catch (error) {
         next(error);

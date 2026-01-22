@@ -13,7 +13,8 @@ exports.findAll = async (filters, sortOptions, limit, offset) => {
         updatedAt: 'updated_at',
         siteId: 'site_id',
         name: 'name',
-        code: 'code'
+        code: 'code',
+        date: 'date'
     };
     const dbSortBy = SORT_MAPPING[sortOptions.sortBy] || 'created_at';
 

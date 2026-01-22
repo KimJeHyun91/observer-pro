@@ -41,7 +41,8 @@ exports.getMembers = [
         .optional()
         .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .customSanitizer(value => value.replace(/\s+/g, '')),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
 
     query('name')
         .optional()
@@ -55,7 +56,17 @@ exports.getMembers = [
     
     query('phone')
         .optional()
-        .isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
+        .custom((value) => {
+            // 1. 숫자만 있는 경우 (10~11자)
+            const pureNumbers = /^\d{10,11}$/;
+            // 2. 하이픈이 포함된 경우 (010-1234-5678 또는 02-123-4567 등)
+            const withHyphen = /^\d{2,3}-\d{3,4}-\d{4}$/;
+
+            if (pureNumbers.test(value) || withHyphen.test(value)) {
+            return true;
+            }
+            throw new Error('올바른 전화번호 형식이 아닙니다. (예: 01012345678 또는 010-1234-5678)');
+        }),
     
     query('phoneLastDigits')
         .optional()
@@ -86,7 +97,8 @@ exports.createMember = [
         .notEmpty().withMessage('carNumber는 필수입니다.')
         .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .customSanitizer(value => value.replace(/\s+/g, '')),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
 
     body('name')
         .notEmpty().withMessage('name은 필수입니다.')
@@ -105,13 +117,21 @@ exports.createMember = [
 
     body('phone')
         .optional()
-        .customSanitizer(value => String(value))
-        .isNumeric().withMessage('phone는 숫자만 포함해야 합니다.')
-        .isLength({ min: 10, max: 11 }).withMessage('phone 길이는 10~11자여야 합니다.'),
+        .custom((value) => {
+            // 1. 숫자만 있는 경우 (10~11자)
+            const pureNumbers = /^\d{10,11}$/;
+            // 2. 하이픈이 포함된 경우 (010-1234-5678 또는 02-123-4567 등)
+            const withHyphen = /^\d{2,3}-\d{3,4}-\d{4}$/;
+
+            if (pureNumbers.test(value) || withHyphen.test(value)) {
+            return true;
+            }
+            throw new Error('올바른 전화번호 형식이 아닙니다. (예: 01012345678 또는 010-1234-5678)');
+        }),
     
     body('groupName')
         .optional()
-        .isString().withMessage('name은 문자열이어야 합니다.')
+        .isString().withMessage('groupName은 문자열이어야 합니다.')
         .trim(),
 
     body('note')
@@ -134,7 +154,8 @@ exports.updateMember = [
         .optional()
         .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .customSanitizer(value => value.replace(/\s+/g, '')),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
 
     body('name')
         .optional()
@@ -153,7 +174,17 @@ exports.updateMember = [
 
     body('phone')
         .optional()
-        .isString().isNumeric().withMessage('phone는 숫자만 포함해야 합니다.').isLength({ min: 10, max: 11 }).withMessage('phone 길이를 확인해주세요.'),
+        .custom((value) => {
+            // 1. 숫자만 있는 경우 (10~11자)
+            const pureNumbers = /^\d{10,11}$/;
+            // 2. 하이픈이 포함된 경우 (010-1234-5678 또는 02-123-4567 등)
+            const withHyphen = /^\d{2,3}-\d{3,4}-\d{4}$/;
+
+            if (pureNumbers.test(value) || withHyphen.test(value)) {
+            return true;
+            }
+            throw new Error('올바른 전화번호 형식이 아닙니다. (예: 01012345678 또는 010-1234-5678)');
+        }),
     
     body('groupName')
         .optional()

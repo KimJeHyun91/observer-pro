@@ -5,9 +5,30 @@ const parkingSessionValidator = require('../../validators/parking-session.valida
 const validate = require('../../middlewares/validator');
 const { restrictTo } = require('../../middlewares/auth.middleware');
 
+// ==========================================
+// 0. 동시성 제어 (Redis Lock & Heartbeat)
+// ==========================================
+
+/**
+ * @route   POST /api/v1/parking-sessions/:id/lock
+ * @desc    [점유 시작] 세션 수정 권한 획득 (TTL: 30초)
+ */
+router.post('/:id/lock', restrictTo(['admin', 'user']), parkingSessionValidator.validateLock, validate, parkingSessionController.acquireLock);
+
+/**
+ * @route   PUT /api/v1/parking-sessions/:id/lock
+ * @desc    [점유 연장] Heartbeat (TTL 초기화)
+ */
+router.put('/:id/lock', restrictTo(['admin', 'user']), parkingSessionValidator.validateLock, validate, parkingSessionController.extendLock);
+
+/**
+ * @route   DELETE /api/v1/parking-sessions/:id/lock
+ * @desc    [점유 해제] 작업 완료/취소 시 즉시 해제
+ */
+router.delete('/:id/lock', restrictTo(['admin', 'user']), parkingSessionValidator.validateLock, validate, parkingSessionController.releaseLock);
 
 // ==========================================
-// 1. 기본 조회 및 생성 (Basic CRUD)
+// 1. Lock 검증 불필요
 // ==========================================
 
 /**
@@ -33,6 +54,17 @@ router.post('/', restrictTo(['admin', 'user']), parkingSessionValidator.validate
  * @desc    [수동 입차] 관리자 강제 입차 포함
  */
 router.post('/entry', restrictTo(['admin', 'user']), parkingSessionValidator.validateEntry, validate, parkingSessionController.entry);
+
+// ==========================================
+// 2. 상태 변경 작업 (Service에서 Lock 소유권 검사 필수)
+// ==========================================
+
+/**
+ * @route   PATCH /api/v1/parking-sessions/:id
+ * @desc    주차 세션(Parking Session) 수정
+ */
+router.patch('/:id', restrictTo(['admin', 'user']), parkingSessionValidator.validateUpdate, validate, parkingSessionController.updateInfo);
+
 /**
  * @route   POST /api/v1/parking-sessions/:id/exit
  * @desc    [수동 출차] 정산 후 출차 처리 또는 강제 출차
@@ -44,11 +76,5 @@ router.post('/:id/exit', restrictTo(['admin', 'user']), parkingSessionValidator.
  * @desc    [할인 적용] 특정 정책(Policy)을 세션에 적용
  */
 router.post('/:id/discount', restrictTo(['admin', 'user']), parkingSessionValidator.validateDiscount, validate, parkingSessionController.applyDiscount);
-
-/**
- * @route   PATCH /api/v1/parking-sessions/:id
- * @desc    [정보 수정] 차량번호 오타 수정, 메모 수정 등 (상태/요금 변경 불가)
- */
-router.patch('/:id', restrictTo(['admin', 'user']), parkingSessionValidator.validateUpdateInfo, validate, parkingSessionController.updateInfo);
 
 module.exports = router;

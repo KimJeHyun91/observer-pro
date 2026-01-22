@@ -44,19 +44,7 @@ const formatMember = (row, isDetailView = false) => {
     }
 
     // 2. 전화번호 보안 처리
-    // 상세 조회(isDetailView=true)일 때는 복호화 시도, 목록 조회일 때는 마스킹
-    let phone = null;
-    
-    if (isDetailView && row.phoneEncrypted) {
-        try {
-            phone = decrypt(row.phoneEncrypted);
-        } catch (e) {
-            phone = 'Decryption Error';
-        }
-    } else if (row.phoneLastDigits) {
-        // 목록 조회용 마스킹
-        phone = `***-****-${row.phoneLastDigits}`;
-    }
+    const phone = decrypt(row.phoneEncrypted);  
 
     return {
         id: row.id,
@@ -85,6 +73,12 @@ const formatMember = (row, isDetailView = false) => {
     };
 };
 
+// 전화번호 정규화 (숫자만 남기기)
+const _normalizePhone = (phone) => {
+    if (!phone) return null;
+    return phone.replace(/[^0-9]/g, '');
+};
+
 // =====================================================================
 // [Service Methods]
 // =====================================================================
@@ -108,7 +102,7 @@ exports.findAll = async (params) => {
     if (params.name)            filters.name = params.name;                         // 이름 검색
     if (params.code)            filters.code = params.code;                         // 코드 검색
     if (params.phone) {
-        const cleanPhone = params.phone.replace(/[^0-9]/g, '');
+        const cleanPhone = _normalizePhone(params.phone);
         filters.phoneHash = createSHA256Hash(cleanPhone); 
     }
     if (params.phoneLastDigits) filters.phoneLastDigits = params.phoneLastDigits;   // 전화번호 뒷자리 검색
@@ -179,7 +173,7 @@ exports.create = async (data) => {
     // 1. 전화번호 암호화 처리
     let phoneData = { phoneEncrypted: null, phoneHash: null, phoneLastDigits: null };
     if (data.phone) {
-        const cleanPhone = data.phone.replace(/[^0-9]/g, '');
+        const cleanPhone = _normalizePhone(data.phone);
         phoneData = {
             phoneEncrypted: encrypt(cleanPhone),
             phoneHash: createSHA256Hash(cleanPhone),
@@ -221,7 +215,7 @@ exports.update = async (id, data) => {
     // 2. 전화번호 갱신 시 암호화 다시 수행
     let updateData = { ...data };
     if (data.phone) {
-        const cleanPhone = data.phone.replace(/[^0-9]/g, '');
+        const cleanPhone = _normalizePhone(data.phone);
         updateData.phoneEncrypted = encrypt(cleanPhone);
         updateData.phoneHash = createSHA256Hash(cleanPhone);
         updateData.phoneLastDigits = cleanPhone.slice(-4);

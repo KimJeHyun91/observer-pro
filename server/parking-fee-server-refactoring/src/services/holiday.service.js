@@ -19,7 +19,7 @@ exports.findAll = async (params) => {
     if (params.isRecurring)   filters.isRecurring = params.isRecurring;     // 반복 여부 검색
 
     // 3. 정렬 옵션 (Allowlist)
-    const ALLOWED_SORTS = ['createdAt', 'updatedAt', 'siteId', 'name', 'code'];
+    const ALLOWED_SORTS = ['createdAt', 'updatedAt', 'siteId', 'name', 'code', 'date'];
     let sortBy = params.sortBy || 'createdAt';
     
     // 허용되지 않은 정렬 키 방어

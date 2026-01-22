@@ -1,4 +1,7 @@
 const { body, param, query } = require('express-validator');
+const dayjs = require('dayjs');
+const customParseFormat = require('dayjs/plugin/customParseFormat');
+dayjs.extend(customParseFormat);
 
 const validateId = param('id')
     .notEmpty().withMessage('id는 필수입니다.')
@@ -24,7 +27,7 @@ exports.getParkingSessions = [
         .optional()
         .isString().withMessage('sortBy는 문자열이어야 합니다.')
         .trim()
-        .isIn(['name', 'carNumber', 'siteId', 'createdAt', 'updatedAt'])
+        .isIn(['carNumber', 'siteId', 'createdAt', 'updatedAt'])
         .withMessage('정렬 기준이 올바르지 않습니다. (허용: name, carNumber, siteId, createdAt, updatedAt)'),
 
     query('sortOrder')
@@ -32,6 +35,7 @@ exports.getParkingSessions = [
         .toUpperCase()
         .isIn(['ASC', 'DESC']).withMessage("sortOrder는 'ASC' 또는 'DESC'여야 합니다."),
 
+    // 기본 검색
     query('siteId')
         .optional()
         .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
@@ -40,14 +44,46 @@ exports.getParkingSessions = [
         .optional()
         .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .customSanitizer(value => value.replace(/\s+/g, '')),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
     
-    // 기간 검색
-    query('startTime').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
-    query('endTime').optional().isISO8601().withMessage('날짜 형식이 올바르지 않습니다.'),
+    query('startTime')
+            .notEmpty().withMessage('시작 시간(startTime)은 필수입니다.')
+            // YYYY-MM-DD 형식 검사 (예: 2025-04-01)
+            .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('YYYY-MM-DD 형식이어야 합니다. (예: 2025-04-01)')
+            .custom((value) => {
+                // 실제 달력에 존재하는 날짜인지 검사 (예: 2025-02-30 방지)
+                const isValidDate = dayjs(value, 'YYYY-MM-DD', true).isValid();
+                if (!isValidDate) {
+                    throw new Error('존재하지 않는 날짜입니다.');
+                }
+                return true;
+            }),
+    
+    query('endTime')
+        .notEmpty().withMessage('종료 시간(endTime)은 필수입니다.')
+        // YYYY-MM-DD 형식 검사
+        .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('YYYY-MM-DD 형식이어야 합니다. (예: 2025-04-30)')
+        .custom((value, { req }) => {
+            const isValidDate = dayjs(value, 'YYYY-MM-DD', true).isValid();
+            if (!isValidDate) {
+                throw new Error('존재하지 않는 날짜입니다.');
+            }
+            
+            // 종료일이 시작일보다 앞서면 안 됨
+            if (dayjs(value).isBefore(dayjs(req.query.startTime))) {
+                throw new Error('종료 날짜는 시작 날짜보다 이후여야 합니다.');
+            }
+            return true;
+        }),
 
-    query('entrySource').optional().trim(),
-    query('exitSource').optional().trim(),
+    query('entrySource')
+        .optional()
+        .isIn(['ADMIN', 'SYSTEM']).withMessage("entrySource는 'ADMIN' 또는 'SYSTEM'이어야 합니다."),
+
+    query('exitSource')
+        .optional()
+        .isIn(['ADMIN', 'SYSTEM']).withMessage("entrySource는 'ADMIN' 또는 'SYSTEM'이어야 합니다."),
     
     query('statuses')
         .optional()
@@ -64,7 +100,6 @@ exports.getParkingSessions = [
             return [value.trim().toUpperCase()];
         })
         .custom((value) => {
-            // value는 위 로직에 의해 무조건 배열([])입니다.
             const allowedStatuses = [
                 'PENDING', 'PRE_SETTLED', 'PAYMENT_PENDING', 
                 'COMPLETED', 'CANCELED', 'RUNAWAY', 
@@ -83,268 +118,96 @@ exports.getParkingSessions = [
 
     query('entryLaneId')
         .optional()
-        .isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
     
     query('exitLaneId')
         .optional()
-        .isUUID().withMessage('exitLaneId는 UUID여야 합니다.'),
-
-    // 페이징
-    query('page').optional().isInt({ min: 1 }).withMessage('page는 1 이상이어야 합니다.'),
-    query('limit').optional().isInt({ min: 1 }).withMessage('limit은 1 이상이어야 합니다.')
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.')
 ];
 
 /**
- * 2. [상세 조회] validateDetail
+ * 주차 세션(Parking Session) 상세 조회 유효성 검사
  */
 exports.validateDetail = [
-    param('id')
-        .notEmpty().withMessage('Session ID는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
-
-    // [추가] isMain
-    query('isMain')
-        .notEmpty().withMessage('isMain은 필수값입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
-        .toBoolean(),
-
-    // [추가] direction (상세 조회 시점 선택)
-    query('direction')
-        .notEmpty().withMessage('direction은 필수값입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.')
+    validateId
 ];
 
 /**
- * 생성 validateCreate
- * - ID 파라미터 없음 (신규 생성)
+ * 주차 세션(Parking Session) 생성 유효성 검사
  */
 exports.validateCreate = [
-
-        // [추가] isMain
-    body('isMain')
-        .notEmpty().withMessage('isMain은 필수입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
-        .toBoolean(),
-
-    // [추가] direction (상세 조회 시점 선택)
-    body('direction')
-        .notEmpty().withMessage('direction은 필수입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
-
-    // [필수] 사이트 및 차량 정보
     body('siteId')
         .notEmpty().withMessage('siteId는 필수입니다.')
         .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
 
     body('carNumber')
-        .notEmpty().withMessage('차량 번호(carNumber)는 필수입니다.')
+        .notEmpty().withMessage('carNumber는 필수입니다.')
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
 
-    body('entryZoneId').optional().isUUID(),
-    body('entryLaneId').optional().isUUID(),
+    body('entryZoneId')
+        .optional()
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
+
+    body('entryLaneId')
+        .optional()
+        .isUUID().withMessage('유효하지 않은 UUID 형식입니다.'),
     
-    // [선택] 입차 시간
     body('entryTime')
-        .optional() // 입력 안 하면 Controller/Repository에서 'NOW()' 처리
+        .notEmpty().withMessage('entryTime은 필수입니다.')
         .isISO8601().withMessage('날짜 형식이 올바르지 않습니다.')
         .custom((value) => {
             const entryDate = new Date(value);
             const now = new Date();
-            // 약간의 네트워크 지연 등을 고려해 1분 정도의 오차는 허용할 수도 있으나, 
-            // 기본적으로 미래 시간은 차단
-            if (entryDate > now) {
-                throw new Error('입차 시간은 미래일 수 없습니다.');
+            
+            // 현재 시간에서 1분(60,000ms)을 더한 허용 오차 범위를 설정
+            const bufferTime = new Date(now.getTime() + 60000);
+
+            if (entryDate > bufferTime) {
+                throw new Error('입차 시간은 현재 시간보다 1분 이상 미래일 수 없습니다.');
             }
             return true;
         }),
 
-    body('force')
-        .optional()
-        .isBoolean().withMessage('force는 true/false boolean 값이어야 합니다.'),
-
-    // [선택] 차량 타입
     body('vehicleType')
         .optional()
         .toUpperCase()
-        .isIn(['NORMAL', 'MEMBER', 'COMPACT', 'ELECTRIC', 'DISABLED'])
+        .isIn(['NORMAL', 'COMPACT', 'ELECTRIC', 'DISABLED'])
         .withMessage('유효하지 않은 차량 타입입니다.'),
 
-    body('entryImageUrl').optional().isString(),
-
-    body('note').optional().isString()
-];
-
-/**
- * 3. [수동 입차] validateEntry
- * - ID 파라미터 없음 (신규 생성)
- */
-exports.validateEntry = [
-
-        // [추가] isMain
-    body('isMain')
-        .notEmpty().withMessage('isMain은 필수입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
-        .toBoolean(),
-
-    // [추가] direction (상세 조회 시점 선택)
-    body('direction')
-        .notEmpty().withMessage('direction은 필수입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
-
-    // [필수] 사이트 및 차량 정보
-    body('siteId')
-        .notEmpty().withMessage('siteId는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
-
-    body('carNumber')
-        .notEmpty().withMessage('차량 번호(carNumber)는 필수입니다.')
-        .trim()
-        .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
-
-    // [선택] 입차 구역/차선 정보
-    body('entryZoneId').optional().isUUID().withMessage('entryZoneId는 UUID여야 합니다.'),
-    body('entryLaneId').notEmpty().withMessage().isUUID().withMessage('entryLaneId는 UUID여야 합니다.'),
-    
-    // [선택] 입차 시간
-    body('entryTime')
-        .optional() // 입력 안 하면 Controller/Repository에서 'NOW()' 처리
-        .isISO8601().withMessage('날짜 형식이 올바르지 않습니다.')
-        .custom((value) => {
-            const entryDate = new Date(value);
-            const now = new Date();
-            // 약간의 네트워크 지연 등을 고려해 1분 정도의 오차는 허용할 수도 있으나, 
-            // 기본적으로 미래 시간은 차단
-            if (entryDate > now) {
-                throw new Error('입차 시간은 미래일 수 없습니다.');
-            }
-            return true;
-        }),
-
-    // [선택] 차량 타입
-    body('vehicleType')
-        .optional()
-        .toUpperCase()
-        .isIn(['NORMAL', 'MEMBER', 'COMPACT', 'ELECTRIC', 'DISABLED'])
-        .withMessage('유효하지 않은 차량 타입입니다.'),
-
-    body('entryImageUrl').optional().isString(),
-
-    // [중요] 강제 입차 여부
     body('force')
         .optional()
-        .isBoolean().withMessage('force는 true/false boolean 값이어야 합니다.'),
-
-    body('note').optional().isString()
-];
-
-/**
- * 4. [수동 출차] validateExit
- * - 정산 후 출차 처리 또는 강제 출차
- */
-exports.validateExit = [
-    // ID 파라미터 검증
-    param('id')
-        .notEmpty().withMessage('Session ID는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
-
-        // [추가] isMain
-    body('isMain')
-        .notEmpty().withMessage('isMain은 필수입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
+        .isBoolean().withMessage('force는 true 또는 false 값이어야 합니다.')
         .toBoolean(),
 
-    // [추가] direction (상세 조회 시점 선택)
-    body('direction')
-        .notEmpty().withMessage('direction은 필수입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
-
-    // [필수] 출차 시간
-    body('exitTime')
+    body('entryImageUrl')
         .optional()
-        .isISO8601().withMessage('출차 시간 형식이 올바르지 않습니다.'),
+        .isString().withMessage('entryImageUrl은 문자열이어야 합니다.'),
 
-    // [선택] 출차 위치 및 이미지
-    body('exitZoneId').optional().isUUID(),
-    body('exitLaneId').optional().isUUID(),
-    body('exitImageUrl').optional().isString(),
-
-    // [선택] 강제 출차 여부
-    body('force')
+    body('note')
         .optional()
-        .isBoolean().withMessage('force는 boolean 값이어야 합니다.'),
-    
-    // [선택] 사유
-    body('note').optional().isString(),
-
-    // [차단] 계산된 필드 전송 방지
-    body('totalFee').not().exists().withMessage('요금은 서버에서 계산되므로 전송할 수 없습니다.'),
-    body('status').not().exists().withMessage('상태값은 서버에서 판단하므로 전송할 수 없습니다.')
+        .isString().withMessage('note는 문자열이어야 합니다.')
 ];
 
 /**
- * 5. [할인 적용] validateDiscount
- * - 특정 정책을 적용하여 요금 감면
+ * 주차 세션(Parking Session) 수정 유효성 검사
  */
-exports.validateDiscount = [
-    param('id').notEmpty().isUUID(),
+exports.validateUpdate = [
+    validateId,
 
-        // [추가] isMain
-    body('isMain')
-        .notEmpty().withMessage('isMain은 필수입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
-        .toBoolean(),
-
-    // [추가] direction (상세 조회 시점 선택)
-    body('direction')
-        .notEmpty().withMessage('direction은 필수입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
-
-    // [변경] 단일 ID -> ID 배열
-    body('policyId')
-        .notEmpty().withMessage('policyId는 필수입니다.')
-        .isUUID().withMessage('유효한 정책 ID(UUID)여야 합니다.'),   
-
-    body('note').optional().isString()
-];
-
-/**
- * 6. [정보 수정] validateUpdateInfo
- * - 제한된 정보만 수정
- */
-exports.validateUpdateInfo = [
-    // ID 파라미터 검증
-    param('id')
-        .notEmpty().withMessage('Session ID는 필수입니다.')
-        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
-
-        // [추가] isMain
-    body('isMain')
-        .notEmpty().withMessage('isMain은 필수입니다.')
-        .isBoolean().withMessage('isMain은 true/false 값이어야 합니다.')
-        .toBoolean(),
-
-    // [추가] direction (상세 조회 시점 선택)
-    body('direction')
-        .notEmpty().withMessage('direction은 필수입니다.')
-        .toUpperCase() // 소문자로 들어와도 대문자로 변환
-        .isIn(['IN', 'OUT']).withMessage('direction은 IN 또는 OUT이어야 합니다.'),
-
-    // 수정 가능한 필드들
     body('carNumber')
-        .optional()
+        .notEmpty().withMessage('carNumber는 필수입니다.')
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
         .trim()
-        .isLength({ min: 4 }).withMessage('차량 번호가 너무 짧습니다.'),
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
 
     body('vehicleType')
         .optional()
         .toUpperCase()
-        .isIn(['NORMAL', 'MEMBER', 'COMPACT', 'ELECTRIC', 'DISABLED'])
+        .isIn(['NORMAL', 'COMPACT', 'ELECTRIC', 'DISABLED'])
         .withMessage('유효하지 않은 차량 타입입니다.'),
 
     body('entryTime')
@@ -360,12 +223,108 @@ exports.validateUpdateInfo = [
             return true;
         }),
 
-    body('note').optional().isString(),
+    body('status')
+        .optional()
+        .isIn(['RUNAWAY', 'CANCELED']).withMessage("status는 'RUNAWAY', 'CANCELED' 중 하나여야 합니다."),
 
-    // [보안] 수정 불가능한 핵심 필드 차단
-    body('status').not().exists().withMessage('상태(status)는 정보 수정 API로 변경할 수 없습니다.'),
-    body('exitTime').not().exists().withMessage('출차 시간은 정보 수정 API로 변경할 수 없습니다.'),
-    body('totalFee').not().exists().withMessage('요금은 직접 수정할 수 없습니다.'),
-    body('paidFee').not().exists().withMessage('결제 금액은 수정할 수 없습니다.'),
-    body('discountFee').not().exists().withMessage('할인 금액은 수정할 수 없습니다.')
+    body('note')
+        .optional()
+        .isString().withMessage('note는 문자열이어야 합니다.')
+];
+
+/**
+ * 수동 입차 유효성 검사
+ */
+exports.validateEntry = [
+    body('siteId')
+        .notEmpty().withMessage('siteId는 필수입니다.')
+        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+
+    body('carNumber')
+        .notEmpty().withMessage('carNumber는 필수입니다.')
+        .isString().withMessage('carNumber는 문자열이어야 합니다.')
+        .trim()
+        .customSanitizer(value => value.replace(/\s+/g, ''))
+        .isLength({ min: 1 }).withMessage('carNumber에 공백만 입력할 수 없습니다.'),
+
+    body('entryLaneId')
+        .notEmpty().withMessage('entryLaneId는 필수입니다.')
+        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+    
+    body('entryTime')
+        .notEmpty().withMessage('entryTime은 필수입니다.')
+        .isISO8601().withMessage('날짜 형식이 올바르지 않습니다.')
+        .custom((value) => {
+            const entryDate = new Date(value);
+            const now = new Date();
+            
+            // 현재 시간에서 1분(60,000ms)을 더한 허용 오차 범위를 설정
+            const bufferTime = new Date(now.getTime() + 60000);
+
+            if (entryDate > bufferTime) {
+                throw new Error('입차 시간은 현재 시간보다 1분 이상 미래일 수 없습니다.');
+            }
+            return true;
+        }),
+
+    body('vehicleType')
+        .optional()
+        .toUpperCase()
+        .isIn(['NORMAL', 'COMPACT', 'ELECTRIC', 'DISABLED'])
+        .withMessage('유효하지 않은 차량 타입입니다.'),
+
+    body('force')
+        .optional()
+        .isBoolean().withMessage('force는 true 또는 false 값이어야 합니다.')
+        .toBoolean(),
+
+    body('entryImageUrl')
+        .optional()
+        .isString().withMessage('entryImageUrl은 문자열이어야 합니다.'),
+
+    body('note')
+        .optional()
+        .isString().withMessage('note는 문자열이어야 합니다.')
+];
+
+/**
+ * 수동 출차 유효성 검사
+ */
+exports.validateExit = [
+    validateId,
+    
+    body('exitLaneId')
+        .notEmpty().withMessage('exitLaneId는 필수입니다.')
+        .isUUID().withMessage('유효한 UUID 형식이 아닙니다.'),
+
+    body('force')
+        .optional()
+        .isBoolean().withMessage('force는 true 또는 false 값이어야 합니다.')
+        .toBoolean(),
+
+    body('exitImageUrl')
+        .optional()
+        .isString().withMessage('exitImageUrl은 문자열이어야 합니다.'),
+
+    body('note')
+        .optional()
+        .isString().withMessage('note는 문자열이어야 합니다.')
+];
+
+/**
+ * 할인 적용 유효성 검사
+ */
+exports.validateDiscount = [
+    validateId,
+
+    body('policyId')
+        .notEmpty().withMessage('policyId는 필수입니다.')
+        .isUUID().withMessage('유효한 정책 ID(UUID)여야 합니다.')   
+];
+
+/**
+ * Lock 유효성 검사
+ */
+exports.validateLock = [
+    validateId
 ];

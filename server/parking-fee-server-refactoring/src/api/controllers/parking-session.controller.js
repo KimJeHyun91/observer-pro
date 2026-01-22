@@ -1,262 +1,154 @@
-const ParkingSessionService = require('../../services/parking-session.service');
+const parkingSessionService = require('../../services/parking-session.service');
+const socketService = require('../../services/socket.service');
+const lockService = require('../../services/lock.service');
 
-class ParkingSessionController {
-    constructor() {
-        this.parkingSessionService = ParkingSessionService;
+/**
+ * =================================================================
+ * [Section 0] 동시성 제어 (Redis Lock)
+ * =================================================================
+ */
+
+// 1. [점유 시작] 수정 권한 획득 (POST /:id/lock)
+exports.acquireLock = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session; 
+
+        await lockService.acquireLock(`parking-session:${id}`, operator.user_id, operator.user_name);
+
+        res.status(200).json({ status: 'OK', message: '세션 점유에 성공했습니다.', data: { parkingSessionId: id, owner: operator.name }});
+    } catch (error) {
+        next(error);
     }
+};
 
-    // =================================================================
-    // 1. [생성] Create (Admin Manual)
-    // =================================================================
-    create = async (req, res, next) => {
-        try {
-            req.body.entrySource = 'ADMIN';
+// 2. [점유 연장] Heartbeat (PUT /:id/lock)
+exports.extendLock = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session;
 
-            // Service에서 create 후 _attachGateLocation(session, 'IN')이 수행되었다고 가정
-            const result = await this.parkingSessionService.create(req.body);
-            
-            let responseData;
-            if (req.body.isMain) {
-                // 생성은 입차이므로 Direction = IN 고정
-                responseData = this._toMainResponseDTO(result, req.body.direction);
-            } else {
-                responseData = this._toResponseDTO(result);
-            }
+        // 락 연장 시도 (실패 시 false 반환 또는 에러)
+        const success = await lockService.extendLock(`parking-session:${id}`, operator.user_id);
 
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 2. [입차] Entry (System/LPR)
-    // =================================================================
-    entry = async (req, res, next) => {
-        try {
-            req.body.entrySource = 'ADMIN'; // 혹은 요청에 따라 변동
-
-            const result = await this.parkingSessionService.entry(req.body);
-            
-            let responseData;
-            if (req.body.isMain) {
-                // 입차 API이므로 Direction = IN 고정
-                responseData = this._toMainResponseDTO(result, req.body.direction);
-            } else {
-                responseData = this._toResponseDTO(result);
-            }
-
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 3. [출차] Process Exit
-    // =================================================================
-    exit = async (req, res, next) => {
-        try {
-            const { id } = req.params;
-
-            const result = await this.parkingSessionService.processExit(id, req.body);
-
-            let responseData;
-            if (req.body.isMain) {
-                // 출차 API이므로 Direction = OUT 고정
-                responseData = this._toMainResponseDTO(result, req.body.direction);
-            } else {
-                responseData = this._toResponseDTO(result);
-            }
-
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 4. [할인 적용] Apply Discount
-    // =================================================================
-    applyDiscount = async (req, res, next) => {
-        try {
-            const { id } = req.params;
-            
-
-            const result = await this.parkingSessionService.applyDiscount(id, req.body);
-
-            let responseData;
-            if (req.body.isMain) {
-                responseData = this._toMainResponseDTO(result, req.body.direction);
-            } else {
-                responseData = this._toResponseDTO(result);
-            }
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 5. [정보 수정] Update Info
-    // =================================================================
-    updateInfo = async (req, res, next) => {
-        try {
-            const { id } = req.params;
-
-            const result = await this.parkingSessionService.updateInfo(id, req.body);
-
-            let responseData;
-            if (req.body.isMain) {
-                responseData = this._toMainResponseDTO(result, req.body.direction);
-            } else {
-                responseData = this._toResponseDTO(result);
-            }
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 6. [목록 조회] Find All
-    // =================================================================
-    findAll = async (req, res, next) => {
-        try {            
-            const { sessions, meta } = await this.parkingSessionService.findAll(req.query);
-
-            let responseData;
-
-            const formattedSessions = sessions.map(session => this._toResponseDTO(session));
-
-            responseData = {
-                sessions: formattedSessions,
-                meta: meta
-            };
-
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // 7. [상세 조회] Find Detail
-    // =================================================================
-    findDetail = async (req, res, next) => {
-        try {
-            const { id } = req.params;
-
-            const session = await this.parkingSessionService.findDetail(id, req.query.direction, req.query.isMain);
-
-            let responseData;
-            if (req.query.isMain) {
-                responseData = this._toMainResponseDTO(session, req.query.direction);
-            } else {
-                responseData = this._toResponseDTO(session);
-            }
-            res.status(200).json({ status: 'OK', data: responseData });
-        } catch (error) {
-            next(error);
-        }
-    };
-
-    // =================================================================
-    // [Private Helper] Main Response DTO (New Custom Format)
-    // =================================================================
-    _toMainResponseDTO(session, direction) {
-        if (!session) return null;
-
-        const isEntry = direction === 'IN';
-        
-        // 1. 입차/출차 여부에 따라 주요 데이터 매핑
-        const eventTime = isEntry ? session.entryTime : session.exitTime;
-        const imageUrl = isEntry ? session.entryImageUrl : session.exitImageUrl;
-        
-        // 2. Location (Service에서 주입한 gateLocation 우선, 없으면 Lane Name)
-        // Service에서 _attachGateLocation을 통해 gateLocation을 채워줬다고 가정합니다.
-        let location = session.gateLocation; 
-        if (!location) {
-             location = isEntry ? session.entryLaneName : session.exitLaneName;
+        if (!success) {
+            const error = new Error('점유 시간이 만료되었거나 권한이 없습니다.');
+            error.status = 409;
+            throw error;
         }
 
-        // 3. 할인 정책 ID 목록
-        const discountPolicyIds = (session.appliedDiscounts || [])
-            .map(d => d.policyId)
-            .filter(id => id);
-        // 4. 구조 생성
-        return {
-            direction: direction, // "IN" or "OUT"
-            siteId: session.siteCode || session.siteId,
-            
-            // DB 세션 테이블에 없는 정보 (필요시 Service Join 필요)
-            deviceIp: null, 
-            devicePort: 0, 
-
-            imageUrl: imageUrl || null,
-            eventTime: session.entryTime  ? new Date(session.entryTime ).toISOString() : null,
-            
-            // [중요] INTEGRATED_GATE 위치 정보 (없으면 LaneName)
-            location: location || 'Unknown',
-            
-            carNumber: session.carNumber,
-            vehicleType: session.vehicleType,
-            
-            totalFee: session.totalFee || 0,
-            discountPolicyIds: discountPolicyIds,
-            discountFee: session.discountFee || 0,
-            
-            // 기결제 금액 (사전 정산 포함)
-            preSettledFee: session.paidFee || 0, 
-            
-            isBlacklist: false, // 별도 조회 필요
-            parkingSessionId: session.id
-        };
+        res.status(200).json({ status: 'OK', message: '세션 점유 시간이 연장되었습니다.' });
+    } catch (error) {
+        next(error);
     }
+};
 
-    // =================================================================
-    // [Private Helper] Standard Response DTO (Existing Format)
-    // =================================================================
-    _toResponseDTO(session) {
-        if (!session) return null;        
-        
-        return {
-            id: session.id,
-            
-            // 입차 정보
-            entryTime: session.entryTime,
-            entryImageUrl: session.entryImageUrl,
-            entrySource: session.entrySource,
-            entryLaneName: session.entryLaneName,
-            
-            // 정산 시점 정보
-            preSettledAt: session.preSettledAt,
+// 3. [점유 해제] (DELETE /:id/lock)
+exports.releaseLock = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session;
 
-            // 출차 정보
-            exitTime: session.exitTime,
-            exitImageUrl: session.exitImageUrl,
-            exitSource: session.exitSource,
-            exitLaneName: session.exitLaneName,
+        await lockService.releaseLock(`parking-session:${id}`, operator.user_id);
 
-            // 차량 정보
-            carNumber: session.carNumber,
-            vehicleType: session.vehicleType,
-
-            // 요금 정보
-            duration: session.duration,
-            totalFee: session.totalFee,
-            discountFee: session.discountFee,
-            paidFee: session.paidFee,
-            appliedDiscounts: session.appliedDiscounts,
-
-            // 상태 및 기타
-            status: session.status,
-            note: session.note,
-            
-            // Service에서 gateLocation을 가져왔다면 기존 포맷에도 포함 가능 (선택사항)
-            gateLocation: session.gateLocation || undefined
-        };
+        res.status(200).json({ status: 'OK', message: '세션 점유가 해제되었습니다.' });
+    } catch (error) {
+        next(error);
     }
-}
+};
 
-module.exports = new ParkingSessionController();
+/**
+ * =================================================================
+ * [Section 1] Lock 검증 불필요
+ * =================================================================
+ */
+
+/**
+ * 목록 조회 (Find All)
+ */
+exports.findAll = async (req, res, next) => {
+    try {
+        const data = await parkingSessionService.findAll(req.query);
+        res.status(200).json({ status: 'OK', message: 'success', data });        
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * 상세 조회 (Find Detail)
+ */
+exports.findDetail = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const data = await parkingSessionService.findDetail(id);
+        res.status(200).json({ status: 'OK', message: 'success', data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * 생성 (Create)
+ */
+exports.create = async (req, res, next) => {
+    try {
+        await parkingSessionService.create(req.body);
+        socketService.emitParkingSessionRefresh();
+        res.status(200).json({ status: 'OK', message: 'success' });            
+    } catch (error) {
+        next(error);
+    }
+};
+
+// 수동 입차
+exports.entry = async (req, res, next) => {
+    try {
+        const data = await parkingSessionService.entry(req.body);
+        res.status(200).json({ status: 'OK', message: 'success', data });  
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
+ * =================================================================
+ * [Section 2] Lock 검증 필요
+ * =================================================================
+ */
+
+// 수동 출차
+exports.exit = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session;
+        const data = await parkingSessionService.processExit(id, req.body, operator);
+        res.status(200).json({ status: 'OK', message: 'success', data });  
+    } catch (error) {
+        next(error);
+    }
+};
+
+// 할인 적용
+exports.applyDiscount = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session;
+        const data = await parkingSessionService.applyDiscount(id, req.body, operator);
+        res.status(200).json({ status: 'OK', message: 'success', data });  
+    } catch (error) {
+        next(error);
+    }
+};
+
+// 수정 (Update)
+exports.updateInfo = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const operator = req.session;
+        const data = await parkingSessionService.update(id, req.body, operator);
+        res.status(200).json({ status: 'OK', message: 'success', data });  
+    } catch (error) {
+        next(error);
+    }
+};
